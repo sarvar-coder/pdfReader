@@ -6,9 +6,11 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:ember/features/library/widgets/continue_card.dart';
 import 'package:ember/features/library/widgets/shelf_grid.dart';
 import 'package:ember/features/library/widgets/streak_card.dart';
+import 'package:ember/models/book.dart';
 import 'package:ember/providers/library_provider.dart';
 import 'package:ember/providers/reader_provider.dart';
 import 'package:ember/theme/app_colors.dart';
+import 'package:ember/widgets/empty_state.dart';
 
 /// The Library screen: greeting header, streak card, continue-reading card,
 /// and the shelf grid. Reads its content from the library providers.
@@ -34,30 +36,80 @@ class LibraryScreen extends ConsumerWidget {
         padding: const EdgeInsets.fromLTRB(18, 6, 18, 96),
         children: [
           _Header(inProgress: inProgress, total: books.length),
-          StreakCard(onTap: onOpenStats),
-          if (featured != null) ...[
-            const _SectionHeader(title: 'Continue reading'),
-            ContinueCard(
-              book: featured,
-              onTap: () {
-                ref.read(currentBookIdProvider.notifier).open(featured.id);
+          if (books.isEmpty)
+            Column(
+              children: [
+                const EmptyState(
+                  icon: Icons.menu_book_rounded,
+                  title: 'Your shelf is empty',
+                  subtitle: 'Import a PDF to start reading. Your highlights, '
+                      'bookmarks and streak will grow from here.',
+                ),
+                ShelfGrid(
+                  books: const [],
+                  onAddPdf: () => _pickAndImportPdf(context, ref),
+                ),
+              ],
+            )
+          else ...[
+            StreakCard(onTap: onOpenStats),
+            if (featured != null) ...[
+              const _SectionHeader(title: 'Continue reading'),
+              ContinueCard(
+                book: featured,
+                onTap: () {
+                  ref.read(currentBookIdProvider.notifier).open(featured.id);
+                  onOpenReader?.call();
+                },
+              ),
+            ],
+            const _SectionHeader(title: 'On the shelf', action: 'Sort'),
+            ShelfGrid(
+              books: shelf,
+              onOpenBook: (book) {
+                ref.read(currentBookIdProvider.notifier).open(book.id);
                 onOpenReader?.call();
               },
+              onDeleteBook: (book) => _confirmDelete(context, ref, book),
+              onAddPdf: () => _pickAndImportPdf(context, ref),
             ),
           ],
-          const _SectionHeader(title: 'On the shelf', action: 'Sort'),
-          ShelfGrid(
-            books: shelf,
-            onOpenBook: (book) {
-              ref.read(currentBookIdProvider.notifier).open(book.id);
-              onOpenReader?.call();
-            },
-            onAddPdf: () => _pickAndImportPdf(context, ref),
-          ),
         ],
       ),
     );
   }
+}
+
+/// Confirms then deletes a book (its PDF file and metadata).
+Future<void> _confirmDelete(
+  BuildContext context,
+  WidgetRef ref,
+  Book book,
+) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Remove book?'),
+      content: Text(
+        '“${book.title}” and its saved file will be deleted. '
+        'Highlights and bookmarks remain in Saved.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Remove'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true) return;
+  await ref.read(libraryProvider.notifier).remove(book.id);
+  messenger.showSnackBar(SnackBar(content: Text('Removed “${book.title}”')));
 }
 
 /// Opens the system file picker for a PDF, copies it into app storage, and adds

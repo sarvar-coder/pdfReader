@@ -1,11 +1,15 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 
 import 'package:ember/features/library/library_screen.dart';
 import 'package:ember/features/reader/reader_screen.dart';
 import 'package:ember/features/saved/saved_screen.dart';
 import 'package:ember/features/stats/stats_screen.dart';
+import 'package:ember/providers/library_provider.dart';
 import 'package:ember/theme/app_colors.dart';
 
 /// The four top-level destinations, in nav order.
@@ -24,15 +28,51 @@ enum _Tab {
 /// Hosts the current screen and a frosted bottom nav bar. The selected tab is
 /// kept in local state for now; real screens replace the placeholders in later
 /// steps (1.3–1.6).
-class AppShell extends StatefulWidget {
+class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key});
 
   @override
-  State<AppShell> createState() => _AppShellState();
+  ConsumerState<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class _AppShellState extends ConsumerState<AppShell> {
   int _index = 0;
+  StreamSubscription<List<SharedMediaFile>>? _shareSub;
+
+  @override
+  void initState() {
+    super.initState();
+    // PDFs shared/opened from other apps (Files, Safari, Mail, etc.).
+    ReceiveSharingIntent.instance.getInitialMedia().then((files) {
+      _importShared(files);
+      ReceiveSharingIntent.instance.reset();
+    });
+    _shareSub =
+        ReceiveSharingIntent.instance.getMediaStream().listen(_importShared);
+  }
+
+  @override
+  void dispose() {
+    _shareSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _importShared(List<SharedMediaFile> files) async {
+    var importedAny = false;
+    for (final file in files) {
+      final path = file.path;
+      if (!path.toLowerCase().endsWith('.pdf')) continue;
+      final name = path.split('/').last;
+      final title = name.length > 4 ? name.substring(0, name.length - 4) : name;
+      await ref
+          .read(libraryProvider.notifier)
+          .importPdf(sourcePath: path, title: title);
+      importedAny = true;
+    }
+    if (importedAny && mounted) {
+      setState(() => _index = _Tab.library.index);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

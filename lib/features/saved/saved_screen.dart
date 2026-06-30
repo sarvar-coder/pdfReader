@@ -10,6 +10,7 @@ import 'package:ember/providers/highlights_provider.dart';
 import 'package:ember/providers/library_provider.dart';
 import 'package:ember/providers/reader_provider.dart';
 import 'package:ember/theme/app_colors.dart';
+import 'package:ember/widgets/empty_state.dart';
 
 /// The Saved screen: a header and a Highlights / Bookmarks segmented switch,
 /// each listing the persisted cards from the providers.
@@ -60,11 +61,32 @@ class _SavedScreenState extends ConsumerState<SavedScreen> {
           ),
           const SizedBox(height: 16),
           if (_tab == 0)
-            for (final h in highlights)
-              HighlightCard(highlight: h, onTap: () => _open(h.bookId, page: h.page))
+            if (highlights.isEmpty)
+              const EmptyState(
+                icon: Icons.format_quote_rounded,
+                title: 'No highlights yet',
+                subtitle: 'Select text while reading, then pick a color to '
+                    'save a highlight here.',
+              )
+            else
+              for (final h in highlights)
+                HighlightCard(
+                  highlight: h,
+                  onTap: () => _open(h.bookId, page: h.page),
+                )
+          else if (bookmarks.isEmpty)
+            const EmptyState(
+              icon: Icons.bookmark_border_rounded,
+              title: 'No bookmarks yet',
+              subtitle: 'Tap the bookmark icon while reading to mark your '
+                  'place and jump back later.',
+            )
           else
             for (final b in bookmarks)
-              BookmarkTile(bookmark: b, onTap: () => _open(b.bookId, page: b.page)),
+              BookmarkTile(
+                bookmark: b,
+                onTap: () => _open(b.bookId, page: b.page),
+              ),
         ],
       ),
     );

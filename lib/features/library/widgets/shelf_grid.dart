@@ -12,11 +12,13 @@ class ShelfGrid extends StatelessWidget {
     super.key,
     required this.books,
     this.onOpenBook,
+    this.onDeleteBook,
     this.onAddPdf,
   });
 
   final List<Book> books;
   final ValueChanged<Book>? onOpenBook;
+  final ValueChanged<Book>? onDeleteBook;
   final VoidCallback? onAddPdf;
 
   @override
@@ -32,7 +34,12 @@ class ShelfGrid extends StatelessWidget {
       childAspectRatio: 0.52,
       children: [
         for (final book in books)
-          _ShelfBook(book: book, onTap: () => onOpenBook?.call(book)),
+          _ShelfBook(
+            book: book,
+            onTap: () => onOpenBook?.call(book),
+            onLongPress:
+                onDeleteBook == null ? null : () => onDeleteBook!(book),
+          ),
         _AddTile(onTap: onAddPdf),
       ],
     );
@@ -40,15 +47,17 @@ class ShelfGrid extends StatelessWidget {
 }
 
 class _ShelfBook extends StatelessWidget {
-  const _ShelfBook({required this.book, this.onTap});
+  const _ShelfBook({required this.book, this.onTap, this.onLongPress});
 
   final Book book;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
