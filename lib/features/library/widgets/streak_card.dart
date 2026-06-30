@@ -1,19 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import 'package:ember/features/library/dummy_data.dart';
+import 'package:ember/providers/stats_provider.dart';
 import 'package:ember/widgets/ember_flame.dart';
 
 /// Dark gradient card showing the reading streak: a flickering ember, the day
 /// count, and a row of week dots (lit days + today outlined). Tapping it opens
 /// the Stats screen.
-class StreakCard extends StatelessWidget {
+class StreakCard extends ConsumerWidget {
   const StreakCard({super.key, this.onTap});
 
   final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final stats = ref.watch(statsProvider);
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -57,7 +59,7 @@ class StreakCard extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      '${DummyData.streakDays}',
+                      '${stats.streakDays}',
                       style: GoogleFonts.fraunces(
                         fontSize: 40,
                         height: 1,
@@ -77,7 +79,7 @@ class StreakCard extends StatelessWidget {
                   ],
                 ),
                 const Spacer(),
-                _WeekDots(days: DummyData.weekDots),
+                _WeekDots(days: stats.weekDots),
               ],
             ),
           ],

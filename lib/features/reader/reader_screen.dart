@@ -1,33 +1,34 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'package:ember/features/library/dummy_data.dart';
 import 'package:ember/features/reader/reader_settings.dart';
 import 'package:ember/features/reader/widgets/selection_toolbar.dart';
 import 'package:ember/features/reader/widgets/settings_sheet.dart';
+import 'package:ember/providers/library_provider.dart';
 import 'package:ember/theme/app_colors.dart';
 
-/// The Reader screen (static text for Phase 1). Top/bottom chrome that hides on
+/// The Reader screen (sample text until Phase 3). Top/bottom chrome that hides on
 /// a page tap, sample paragraphs in the chosen typeface with one highlighted
 /// sentence, an "Aa" settings sheet that live-updates the text, and a visual
-/// selection toolbar on long-press.
-class ReaderScreen extends StatefulWidget {
+/// selection toolbar on long-press. Book metadata comes from the library
+/// providers; the prose is still [DummyData].
+class ReaderScreen extends ConsumerStatefulWidget {
   const ReaderScreen({super.key, this.onBack});
 
   /// Returns to the Library (the top-chrome back button).
   final VoidCallback? onBack;
 
   @override
-  State<ReaderScreen> createState() => _ReaderScreenState();
+  ConsumerState<ReaderScreen> createState() => _ReaderScreenState();
 }
 
-class _ReaderScreenState extends State<ReaderScreen> {
+class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   ReaderSettings _settings = const ReaderSettings();
   bool _chromeVisible = true;
   bool _sheetOpen = false;
   bool _selectionVisible = false;
-
-  DummyBook get _book => DummyData.continueReading;
 
   void _onPageTap() {
     setState(() {
@@ -42,6 +43,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = _settings.theme;
+    final book = ref.watch(continueReadingProvider);
+    final title = book?.title ?? 'Untitled';
+    final currentPage = book?.currentPage ?? 0;
+    final totalPages = book?.totalPages ?? 0;
+    final progress = book?.progress ?? 0;
     return Scaffold(
       backgroundColor: theme.bg,
       body: Stack(
@@ -55,12 +61,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 children: [
                   _TopChrome(
                     visible: _chromeVisible,
-                    title: '${_book.title} · Chapter 6',
+                    title: '$title · Chapter 6',
                     inkColor: theme.ink,
                     onBack: widget.onBack,
                     onBookmark: () => ScaffoldMessenger.of(context)
-                        .showSnackBar(const SnackBar(
-                            content: Text('Bookmarked page 184'))),
+                        .showSnackBar(SnackBar(
+                            content: Text('Bookmarked page $currentPage'))),
                     onSettings: () => setState(() => _sheetOpen = true),
                   ),
                   Expanded(
@@ -74,9 +80,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
                   ),
                   _BottomChrome(
                     visible: _chromeVisible,
-                    progress: _book.progress,
+                    progress: progress,
                     inkColor: theme.ink,
-                    pageLabel: 'Page ${_book.currentPage} of ${_book.totalPages}',
+                    pageLabel: 'Page $currentPage of $totalPages',
                   ),
                 ],
               ),

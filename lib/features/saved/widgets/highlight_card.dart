@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import 'package:ember/features/library/dummy_data.dart';
+import 'package:ember/models/highlight.dart';
 import 'package:ember/theme/app_colors.dart';
 
 /// A saved highlight: a colored left stripe, the quote in Spectral, and a source
@@ -9,7 +9,7 @@ import 'package:ember/theme/app_colors.dart';
 class HighlightCard extends StatelessWidget {
   const HighlightCard({super.key, required this.highlight, this.onTap});
 
-  final DummyHighlight highlight;
+  final Highlight highlight;
   final VoidCallback? onTap;
 
   @override

@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import 'package:ember/features/library/dummy_data.dart';
 import 'package:ember/features/library/widgets/continue_card.dart';
 import 'package:ember/features/library/widgets/shelf_grid.dart';
 import 'package:ember/features/library/widgets/streak_card.dart';
+import 'package:ember/providers/library_provider.dart';
 import 'package:ember/theme/app_colors.dart';
 
 /// The Library screen: greeting header, streak card, continue-reading card,
-/// and the shelf grid. Built against [DummyData] for now.
-class LibraryScreen extends StatelessWidget {
+/// and the shelf grid. Reads its content from the library providers.
+class LibraryScreen extends ConsumerWidget {
   const LibraryScreen({super.key, this.onOpenReader, this.onOpenStats});
 
   /// Opens the Reader (continue card / shelf book tap).
@@ -19,22 +20,26 @@ class LibraryScreen extends StatelessWidget {
   final VoidCallback? onOpenStats;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final books = ref.watch(libraryProvider);
+    final featured = ref.watch(continueReadingProvider);
+    final shelf = ref.watch(shelfProvider);
+    final inProgress = ref.watch(inProgressCountProvider);
+
     return SafeArea(
       bottom: false,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(18, 6, 18, 96),
         children: [
-          const _Header(),
+          _Header(inProgress: inProgress, total: books.length),
           StreakCard(onTap: onOpenStats),
-          const _SectionHeader(title: 'Continue reading'),
-          ContinueCard(
-            book: DummyData.continueReading,
-            onTap: onOpenReader,
-          ),
+          if (featured != null) ...[
+            const _SectionHeader(title: 'Continue reading'),
+            ContinueCard(book: featured, onTap: onOpenReader),
+          ],
           const _SectionHeader(title: 'On the shelf', action: 'Sort'),
           ShelfGrid(
-            books: DummyData.shelf,
+            books: shelf,
             onOpenBook: (_) => onOpenReader?.call(),
             onAddPdf: () => ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Pick a PDF from Files / Drive')),
@@ -47,7 +52,10 @@ class LibraryScreen extends StatelessWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header();
+  const _Header({required this.inProgress, required this.total});
+
+  final int inProgress;
+  final int total;
 
   @override
   Widget build(BuildContext context) {
@@ -77,7 +85,7 @@ class _Header extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '3 books in progress · 41 on the shelf',
+            '$inProgress in progress · $total on the shelf',
             style: GoogleFonts.inter(
               fontSize: 13.5,
               color: AppColors.inkSoft,

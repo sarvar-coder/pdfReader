@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import 'package:ember/features/library/dummy_data.dart';
 import 'package:ember/features/library/widgets/book_cover.dart';
+import 'package:ember/models/book.dart';
 import 'package:ember/theme/app_colors.dart';
 
 /// The 3-column shelf: a cover + title/author per book, plus a dashed
@@ -15,8 +15,8 @@ class ShelfGrid extends StatelessWidget {
     this.onAddPdf,
   });
 
-  final List<DummyBook> books;
-  final ValueChanged<DummyBook>? onOpenBook;
+  final List<Book> books;
+  final ValueChanged<Book>? onOpenBook;
   final VoidCallback? onAddPdf;
 
   @override
@@ -42,7 +42,7 @@ class ShelfGrid extends StatelessWidget {
 class _ShelfBook extends StatelessWidget {
   const _ShelfBook({required this.book, this.onTap});
 
-  final DummyBook book;
+  final Book book;
   final VoidCallback? onTap;
 
   @override

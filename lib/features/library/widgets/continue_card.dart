@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import 'package:ember/features/library/dummy_data.dart';
 import 'package:ember/features/library/widgets/book_cover.dart';
+import 'package:ember/models/book.dart';
 import 'package:ember/theme/app_colors.dart';
 
 /// The "Continue reading" card: cover, page position, title, author, a progress
@@ -10,7 +10,7 @@ import 'package:ember/theme/app_colors.dart';
 class ContinueCard extends StatelessWidget {
   const ContinueCard({super.key, required this.book, this.onTap});
 
-  final DummyBook book;
+  final Book book;
   final VoidCallback? onTap;
 
   @override

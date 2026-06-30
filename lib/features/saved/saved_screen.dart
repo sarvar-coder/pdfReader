@@ -1,28 +1,32 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import 'package:ember/features/library/dummy_data.dart';
 import 'package:ember/features/saved/widgets/bookmark_tile.dart';
 import 'package:ember/features/saved/widgets/highlight_card.dart';
+import 'package:ember/providers/bookmarks_provider.dart';
+import 'package:ember/providers/highlights_provider.dart';
 import 'package:ember/theme/app_colors.dart';
 
 /// The Saved screen: a header and a Highlights / Bookmarks segmented switch,
-/// each listing its sample cards. Built against [DummyData] for now.
-class SavedScreen extends StatefulWidget {
+/// each listing the persisted cards from the providers.
+class SavedScreen extends ConsumerStatefulWidget {
   const SavedScreen({super.key, this.onOpenReader});
 
   /// Opens the Reader (tapping a highlight or bookmark).
   final VoidCallback? onOpenReader;
 
   @override
-  State<SavedScreen> createState() => _SavedScreenState();
+  ConsumerState<SavedScreen> createState() => _SavedScreenState();
 }
 
-class _SavedScreenState extends State<SavedScreen> {
+class _SavedScreenState extends ConsumerState<SavedScreen> {
   int _tab = 0; // 0 = Highlights, 1 = Bookmarks
 
   @override
   Widget build(BuildContext context) {
+    final highlights = ref.watch(highlightsProvider);
+    final bookmarks = ref.watch(bookmarksProvider);
     return SafeArea(
       bottom: false,
       child: ListView(
@@ -36,10 +40,10 @@ class _SavedScreenState extends State<SavedScreen> {
           ),
           const SizedBox(height: 16),
           if (_tab == 0)
-            for (final h in DummyData.highlights)
+            for (final h in highlights)
               HighlightCard(highlight: h, onTap: widget.onOpenReader)
           else
-            for (final b in DummyData.bookmarks)
+            for (final b in bookmarks)
               BookmarkTile(bookmark: b, onTap: widget.onOpenReader),
         ],
       ),

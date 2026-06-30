@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import 'package:ember/features/library/dummy_data.dart';
+import 'package:ember/models/bookmark.dart';
 import 'package:ember/theme/app_colors.dart';
 
 /// A saved bookmark: a page-number badge, the chapter, and a short note.
@@ -9,7 +9,7 @@ import 'package:ember/theme/app_colors.dart';
 class BookmarkTile extends StatelessWidget {
   const BookmarkTile({super.key, required this.bookmark, this.onTap});
 
-  final DummyBookmark bookmark;
+  final Bookmark bookmark;
   final VoidCallback? onTap;
 
   @override
