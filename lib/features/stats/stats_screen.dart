@@ -47,7 +47,7 @@ class StatsScreen extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 22),
-          Heatmap(),
+          Heatmap(levels: stats.heatmapLevels),
         ],
       ),
     );

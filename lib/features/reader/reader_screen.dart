@@ -9,12 +9,15 @@ import 'package:ember/features/library/dummy_data.dart';
 import 'package:ember/features/reader/reader_settings.dart';
 import 'package:ember/features/reader/widgets/selection_toolbar.dart';
 import 'package:ember/features/reader/widgets/settings_sheet.dart';
+import 'package:ember/models/book.dart';
 import 'package:ember/models/bookmark.dart';
 import 'package:ember/models/highlight.dart';
+import 'package:ember/models/reading_session.dart';
 import 'package:ember/providers/bookmarks_provider.dart';
 import 'package:ember/providers/highlights_provider.dart';
 import 'package:ember/providers/library_provider.dart';
 import 'package:ember/providers/reader_provider.dart';
+import 'package:ember/providers/sessions_provider.dart';
 import 'package:ember/services/pdf_service.dart';
 import 'package:ember/theme/app_colors.dart';
 
@@ -36,13 +39,19 @@ class ReaderScreen extends ConsumerStatefulWidget {
   ConsumerState<ReaderScreen> createState() => _ReaderScreenState();
 }
 
-class _ReaderScreenState extends ConsumerState<ReaderScreen> {
+class _ReaderScreenState extends ConsumerState<ReaderScreen>
+    with WidgetsBindingObserver {
   ReaderSettings _settings = const ReaderSettings();
   bool _chromeVisible = true;
   bool _sheetOpen = false;
 
   /// The latest selected text, captured from the [SelectionArea].
   String? _selectedText;
+
+  // ── Reading-session recording ───────────────────────────────────────────
+  String? _sessionBookId;
+  DateTime? _sessionStart;
+  int _sessionStartPage = 0;
 
   // ── Reading-position tracking ───────────────────────────────────────────
   final ScrollController _scroll = ScrollController();
@@ -65,14 +74,70 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   void initState() {
     super.initState();
     _scroll.addListener(_onScroll);
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void dispose() {
+    _endSession();
+    WidgetsBinding.instance.removeObserver(this);
     _saveTimer?.cancel();
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      _endSession();
+    } else if (state == AppLifecycleState.resumed && _sessionBookId == null) {
+      final book = ref.read(currentBookProvider);
+      if (book != null && ref.read(currentPdfPathProvider) != null) {
+        _startSession(book);
+      }
+    }
+  }
+
+  /// Begins timing a reading session for [book] (real PDFs only).
+  void _startSession(Book book) {
+    _sessionBookId = book.id;
+    _sessionStart = DateTime.now();
+    _sessionStartPage = book.currentPage;
+  }
+
+  /// Persists the active session (minutes read + pages advanced), if any.
+  void _endSession() {
+    final id = _sessionBookId;
+    final start = _sessionStart;
+    _sessionBookId = null;
+    _sessionStart = null;
+    if (id == null || start == null) return;
+
+    final now = DateTime.now();
+    final minutes = now.difference(start).inMinutes;
+    var endPage = _sessionStartPage;
+    for (final b in ref.read(libraryProvider)) {
+      if (b.id == id) {
+        endPage = b.currentPage;
+        break;
+      }
+    }
+    final pagesRead = (endPage - _sessionStartPage).clamp(0, 1 << 30);
+    if (minutes <= 0 && pagesRead <= 0) return; // ignore trivial opens
+
+    ref.read(readingSessionsProvider.notifier).add(
+          ReadingSession(
+            id: 'rs-${now.microsecondsSinceEpoch}',
+            bookId: id,
+            startedAt: start,
+            endedAt: now,
+            pagesRead: pagesRead,
+            minutes: minutes,
+          ),
+        );
   }
 
   void _onScroll() {
@@ -265,12 +330,21 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           (text: h.quote, color: h.color.withValues(alpha: 0.4)),
     ];
 
-    // A different book is open → set up to restore its saved position.
+    // A different book is open → set up to restore its saved position and start
+    // a fresh reading session (ending the previous one).
     if (book?.id != _positionBookId) {
       _positionBookId = book?.id;
       _pendingRestoreFraction = book?.readingFraction ?? 0;
       _restoredBookId = null;
       _needsRestore = _hasPdf;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _endSession();
+        final b = ref.read(currentBookProvider);
+        if (b != null && ref.read(currentPdfPathProvider) != null) {
+          _startSession(b);
+        }
+      });
     }
 
     // A bookmark/highlight tap requested a jump → override the restore target.

@@ -1,16 +1,15 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'package:ember/theme/app_colors.dart';
 
-/// A quarter heatmap: a 13-column grid of cells with five intensity levels.
-/// Filled with random levels for now (no real session data yet).
+/// A quarter heatmap: a 13-column grid of cells, one per day, painted by their
+/// 0–4 intensity [levels] (derived from recorded reading minutes).
 class Heatmap extends StatelessWidget {
-  Heatmap({super.key, this.cellCount = 91});
+  const Heatmap({super.key, required this.levels});
 
-  final int cellCount;
+  /// One 0–4 level per day, oldest first; length sets the number of cells.
+  final List<int> levels;
 
   /// Level 0 → 4 colors (0 = empty), matching the mockup's legend.
   static const List<Color> _levelColors = [
@@ -20,18 +19,6 @@ class Heatmap extends StatelessWidget {
     Color(0xFFE08A45),
     Color(0xFFC75A22),
   ];
-
-  // Fixed seed so the random fill is stable across rebuilds.
-  final Random _rng = Random(7);
-
-  int _level() {
-    final r = _rng.nextDouble();
-    if (r > 0.82) return 4;
-    if (r > 0.6) return 3;
-    if (r > 0.4) return 2;
-    if (r > 0.22) return 1;
-    return 0;
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -64,16 +51,16 @@ class Heatmap extends StatelessWidget {
           GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            itemCount: cellCount,
+            itemCount: levels.length,
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 13,
               mainAxisSpacing: 5,
               crossAxisSpacing: 5,
               childAspectRatio: 1,
             ),
-            itemBuilder: (context, _) => DecoratedBox(
+            itemBuilder: (context, i) => DecoratedBox(
               decoration: BoxDecoration(
-                color: _levelColors[_level()],
+                color: _levelColors[levels[i].clamp(0, 4)],
                 borderRadius: BorderRadius.circular(4),
               ),
             ),
