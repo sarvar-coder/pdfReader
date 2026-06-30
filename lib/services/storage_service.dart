@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -52,8 +54,31 @@ class StorageService {
     return service;
   }
 
-  /// On-disk path for a book's PDF (created in Phase 3 on import).
+  /// On-disk path for a book's PDF.
   String pdfPathFor(String bookId) => '$_booksDir/$bookId.pdf';
+
+  /// Whether a book's PDF file exists on disk.
+  bool pdfExistsFor(String bookId) => File(pdfPathFor(bookId)).existsSync();
+
+  /// Copies a picked PDF into app storage as `<docs>/books/<bookId>.pdf`,
+  /// creating the books directory if needed. Returns the destination path.
+  Future<String> importPdfFile(String sourcePath, String bookId) async {
+    final dir = Directory(_booksDir);
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    final dest = pdfPathFor(bookId);
+    await File(sourcePath).copy(dest);
+    return dest;
+  }
+
+  /// Deletes a book's PDF file if present (used when removing a book).
+  Future<void> deletePdfFor(String bookId) async {
+    final file = File(pdfPathFor(bookId));
+    if (await file.exists()) {
+      await file.delete();
+    }
+  }
 
   /// Seeds Hive from [DummyData] so Phase 2 has real, persisted content to show
   /// before PDF import exists. Runs once (when the books box is empty).

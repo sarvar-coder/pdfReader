@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -6,6 +7,7 @@ import 'package:ember/features/library/widgets/continue_card.dart';
 import 'package:ember/features/library/widgets/shelf_grid.dart';
 import 'package:ember/features/library/widgets/streak_card.dart';
 import 'package:ember/providers/library_provider.dart';
+import 'package:ember/providers/reader_provider.dart';
 import 'package:ember/theme/app_colors.dart';
 
 /// The Library screen: greeting header, streak card, continue-reading card,
@@ -35,18 +37,56 @@ class LibraryScreen extends ConsumerWidget {
           StreakCard(onTap: onOpenStats),
           if (featured != null) ...[
             const _SectionHeader(title: 'Continue reading'),
-            ContinueCard(book: featured, onTap: onOpenReader),
+            ContinueCard(
+              book: featured,
+              onTap: () {
+                ref.read(currentBookIdProvider.notifier).open(featured.id);
+                onOpenReader?.call();
+              },
+            ),
           ],
           const _SectionHeader(title: 'On the shelf', action: 'Sort'),
           ShelfGrid(
             books: shelf,
-            onOpenBook: (_) => onOpenReader?.call(),
-            onAddPdf: () => ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Pick a PDF from Files / Drive')),
-            ),
+            onOpenBook: (book) {
+              ref.read(currentBookIdProvider.notifier).open(book.id);
+              onOpenReader?.call();
+            },
+            onAddPdf: () => _pickAndImportPdf(context, ref),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Opens the system file picker for a PDF, copies it into app storage, and adds
+/// a [Book] record. Page count is filled in later (step 3.4).
+Future<void> _pickAndImportPdf(BuildContext context, WidgetRef ref) async {
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    final result = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf'],
+    );
+    final path = result?.files.single.path;
+    if (path == null) return; // cancelled, or no readable path
+
+    final name = result!.files.single.name;
+    final title = name.toLowerCase().endsWith('.pdf')
+        ? name.substring(0, name.length - 4)
+        : name;
+
+    final book = await ref
+        .read(libraryProvider.notifier)
+        .importPdf(sourcePath: path, title: title);
+
+    messenger.showSnackBar(
+      SnackBar(content: Text('Added “${book.title}”')),
+    );
+  } catch (e) {
+    messenger.showSnackBar(
+      SnackBar(content: Text('Couldn’t import PDF: $e')),
     );
   }
 }

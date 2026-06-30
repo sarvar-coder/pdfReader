@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -7,6 +9,8 @@ import 'package:ember/features/reader/reader_settings.dart';
 import 'package:ember/features/reader/widgets/selection_toolbar.dart';
 import 'package:ember/features/reader/widgets/settings_sheet.dart';
 import 'package:ember/providers/library_provider.dart';
+import 'package:ember/providers/reader_provider.dart';
+import 'package:ember/services/pdf_service.dart';
 import 'package:ember/theme/app_colors.dart';
 
 /// The Reader screen (sample text until Phase 3). Top/bottom chrome that hides on
@@ -30,6 +34,51 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   bool _sheetOpen = false;
   bool _selectionVisible = false;
 
+  // ── Reading-position tracking ───────────────────────────────────────────
+  final ScrollController _scroll = ScrollController();
+  Timer? _saveTimer;
+
+  /// Id of the book we're currently tracking position for.
+  String? _positionBookId;
+
+  /// Id we've already restored the scroll position for (so we restore once).
+  String? _restoredBookId;
+  double _pendingRestoreFraction = 0;
+
+  /// True while a restore is pending, to suppress saves that would clobber it.
+  bool _needsRestore = false;
+
+  /// Whether the open book has a real PDF (only those track/restore position).
+  bool _hasPdf = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _saveTimer?.cancel();
+    _scroll.removeListener(_onScroll);
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_hasPdf || _needsRestore || !_scroll.hasClients) return;
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 250), _savePosition);
+  }
+
+  void _savePosition() {
+    final id = _positionBookId;
+    if (!_hasPdf || id == null || !_scroll.hasClients) return;
+    final max = _scroll.position.maxScrollExtent;
+    final fraction = max <= 0 ? 0.0 : (_scroll.offset / max).clamp(0.0, 1.0);
+    ref.read(libraryProvider.notifier).updateReadingPosition(id, fraction);
+  }
+
   void _onPageTap() {
     setState(() {
       if (_selectionVisible) {
@@ -40,10 +89,95 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     });
   }
 
+  /// Chooses what the page shows: a spinner while parsing, the demo prose when
+  /// the book has no PDF (seeded books), an empty-text notice for scanned PDFs,
+  /// or the reflowed extracted text.
+  Widget _buildPage(AsyncValue<PdfContent?> contentAsync, Color ink) {
+    return contentAsync.when(
+      loading: () => Center(
+        child: CircularProgressIndicator(color: ink.withValues(alpha: 0.5)),
+      ),
+      error: (e, _) => _PageBody(
+        controller: _scroll,
+        settings: _settings,
+        paragraphs: ['Couldn’t read this PDF.', '$e'],
+      ),
+      data: (content) {
+        if (content == null) {
+          // Seeded demo book → sample prose with the highlighted sentence.
+          return _PageBody(
+            controller: _scroll,
+            settings: _settings,
+            heading: 'Roots',
+            paragraphs: DummyData.sampleParagraphs,
+            highlightTarget: DummyData.highlightedSentence,
+          );
+        }
+        final text = content.fullText.trim();
+        if (text.isEmpty) {
+          return _PageBody(
+            controller: _scroll,
+            settings: _settings,
+            paragraphs: const [
+              'No selectable text found in this PDF. '
+                  'It may be made of scanned images.',
+            ],
+          );
+        }
+        // Real content is laid out — restore the saved position once.
+        _scheduleRestoreIfNeeded();
+        return _PageBody(
+          controller: _scroll,
+          settings: _settings,
+          paragraphs: _toParagraphs(text),
+        );
+      },
+    );
+  }
+
+  /// After the extracted text is laid out, jump to the saved reading fraction
+  /// (once per book open).
+  void _scheduleRestoreIfNeeded() {
+    if (!_hasPdf || !_needsRestore || _restoredBookId == _positionBookId) {
+      return;
+    }
+    final fraction = _pendingRestoreFraction;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      final max = _scroll.position.maxScrollExtent;
+      _scroll.jumpTo((fraction.clamp(0.0, 1.0)) * max);
+      _restoredBookId = _positionBookId;
+      _needsRestore = false;
+    });
+  }
+
+  /// Splits extracted text into reflowable paragraphs: break on blank lines,
+  /// then collapse the remaining single line breaks into spaces.
+  static List<String> _toParagraphs(String text) {
+    final blocks = text.split(RegExp(r'\n[ \t]*\n'));
+    final paragraphs = <String>[
+      for (final block in blocks)
+        if (block.trim().isNotEmpty)
+          block.trim().replaceAll(RegExp(r'\s*\n\s*'), ' '),
+    ];
+    return paragraphs.isEmpty ? [text] : paragraphs;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = _settings.theme;
-    final book = ref.watch(continueReadingProvider);
+    final book = ref.watch(currentBookProvider);
+    final contentAsync = ref.watch(readerContentProvider);
+    _hasPdf = ref.watch(currentPdfPathProvider) != null;
+
+    // A different book is open → set up to restore its saved position.
+    if (book?.id != _positionBookId) {
+      _positionBookId = book?.id;
+      _pendingRestoreFraction = book?.readingFraction ?? 0;
+      _restoredBookId = null;
+      _needsRestore = _hasPdf;
+    }
+
     final title = book?.title ?? 'Untitled';
     final currentPage = book?.currentPage ?? 0;
     final totalPages = book?.totalPages ?? 0;
@@ -63,7 +197,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                     visible: _chromeVisible,
                     title: '$title · Chapter 6',
                     inkColor: theme.ink,
-                    onBack: widget.onBack,
+                    onBack: () {
+                      _savePosition();
+                      widget.onBack?.call();
+                    },
                     onBookmark: () => ScaffoldMessenger.of(context)
                         .showSnackBar(SnackBar(
                             content: Text('Bookmarked page $currentPage'))),
@@ -75,7 +212,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                       onLongPress: () =>
                           setState(() => _selectionVisible = true),
                       behavior: HitTestBehavior.opaque,
-                      child: _PageBody(settings: _settings),
+                      child: _buildPage(contentAsync, theme.ink),
                     ),
                   ),
                   _BottomChrome(
@@ -305,34 +442,51 @@ class _IconBtn extends StatelessWidget {
   }
 }
 
-/// The scrollable reading page: a chapter heading and sample paragraphs in the
-/// chosen typeface, with one highlighted sentence.
+/// The scrollable reading page: an optional heading and the reflowed paragraphs
+/// in the chosen typeface, optionally highlighting one sentence.
 class _PageBody extends StatelessWidget {
-  const _PageBody({required this.settings});
+  const _PageBody({
+    required this.controller,
+    required this.settings,
+    required this.paragraphs,
+    this.heading,
+    this.highlightTarget,
+  });
 
+  final ScrollController controller;
   final ReaderSettings settings;
+  final List<String> paragraphs;
+  final String? heading;
+  final String? highlightTarget;
 
   @override
   Widget build(BuildContext context) {
     final ink = settings.theme.ink;
     return SingleChildScrollView(
+      controller: controller,
       padding: const EdgeInsets.fromLTRB(26, 14, 26, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Roots',
-            style: GoogleFonts.fraunces(
-              fontSize: 23,
-              fontWeight: FontWeight.w600,
-              color: ink,
+          if (heading != null) ...[
+            Text(
+              heading!,
+              style: GoogleFonts.fraunces(
+                fontSize: 23,
+                fontWeight: FontWeight.w600,
+                color: ink,
+              ),
             ),
-          ),
-          const SizedBox(height: 14),
-          for (final paragraph in DummyData.sampleParagraphs)
+            const SizedBox(height: 14),
+          ],
+          for (final paragraph in paragraphs)
             Padding(
               padding: const EdgeInsets.only(bottom: 16),
-              child: _Paragraph(text: paragraph, settings: settings),
+              child: _Paragraph(
+                text: paragraph,
+                settings: settings,
+                highlightTarget: highlightTarget,
+              ),
             ),
         ],
       ),
@@ -340,21 +494,26 @@ class _PageBody extends StatelessWidget {
   }
 }
 
-/// Renders one paragraph, wrapping [DummyData.highlightedSentence] (if present)
-/// in a gold highlight.
+/// Renders one paragraph, wrapping [highlightTarget] (if present) in a gold
+/// highlight. Applies the live font/typeface/spacing via [ReaderSettings].
 class _Paragraph extends StatelessWidget {
-  const _Paragraph({required this.text, required this.settings});
+  const _Paragraph({
+    required this.text,
+    required this.settings,
+    this.highlightTarget,
+  });
 
   final String text;
   final ReaderSettings settings;
+  final String? highlightTarget;
 
   @override
   Widget build(BuildContext context) {
     final base = settings.bodyStyle();
-    const target = DummyData.highlightedSentence;
-    final start = text.indexOf(target);
+    final target = highlightTarget;
+    final start = target == null ? -1 : text.indexOf(target);
 
-    if (start < 0) {
+    if (target == null || start < 0) {
       return Text(text, style: base);
     }
 

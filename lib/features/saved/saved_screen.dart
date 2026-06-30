@@ -6,6 +6,7 @@ import 'package:ember/features/saved/widgets/bookmark_tile.dart';
 import 'package:ember/features/saved/widgets/highlight_card.dart';
 import 'package:ember/providers/bookmarks_provider.dart';
 import 'package:ember/providers/highlights_provider.dart';
+import 'package:ember/providers/reader_provider.dart';
 import 'package:ember/theme/app_colors.dart';
 
 /// The Saved screen: a header and a Highlights / Bookmarks segmented switch,
@@ -22,6 +23,11 @@ class SavedScreen extends ConsumerStatefulWidget {
 
 class _SavedScreenState extends ConsumerState<SavedScreen> {
   int _tab = 0; // 0 = Highlights, 1 = Bookmarks
+
+  void _open(String bookId) {
+    ref.read(currentBookIdProvider.notifier).open(bookId);
+    widget.onOpenReader?.call();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -41,10 +47,10 @@ class _SavedScreenState extends ConsumerState<SavedScreen> {
           const SizedBox(height: 16),
           if (_tab == 0)
             for (final h in highlights)
-              HighlightCard(highlight: h, onTap: widget.onOpenReader)
+              HighlightCard(highlight: h, onTap: () => _open(h.bookId))
           else
             for (final b in bookmarks)
-              BookmarkTile(bookmark: b, onTap: widget.onOpenReader),
+              BookmarkTile(bookmark: b, onTap: () => _open(b.bookId)),
         ],
       ),
     );

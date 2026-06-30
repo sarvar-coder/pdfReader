@@ -13,6 +13,7 @@ class Book {
     required this.totalPages,
     required this.gradientColors,
     this.chapter,
+    this.readingFraction = 0,
     DateTime? addedAt,
   }) : addedAt = addedAt ?? DateTime.now();
 
@@ -28,6 +29,10 @@ class Book {
 
   /// Optional chapter label shown on the continue card / reader chrome.
   final String? chapter;
+
+  /// Last reading position as a 0.0–1.0 fraction of the scrollable text. Stored
+  /// as a fraction (not a pixel offset) so it survives font-size/spacing changes.
+  final double readingFraction;
 
   /// When the book was added to the library (used for "recently added" sort).
   final DateTime addedAt;
@@ -49,6 +54,7 @@ class Book {
     int? totalPages,
     List<int>? gradientColors,
     String? chapter,
+    double? readingFraction,
   }) {
     return Book(
       id: id,
@@ -58,6 +64,7 @@ class Book {
       totalPages: totalPages ?? this.totalPages,
       gradientColors: gradientColors ?? this.gradientColors,
       chapter: chapter ?? this.chapter,
+      readingFraction: readingFraction ?? this.readingFraction,
       addedAt: addedAt,
     );
   }
@@ -84,13 +91,14 @@ class BookAdapter extends TypeAdapter<Book> {
       gradientColors: (fields[5] as List).cast<int>(),
       chapter: fields[6] as String?,
       addedAt: fields[7] as DateTime?,
+      readingFraction: (fields[8] as num?)?.toDouble() ?? 0,
     );
   }
 
   @override
   void write(BinaryWriter writer, Book obj) {
     writer
-      ..writeByte(8)
+      ..writeByte(9)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -106,6 +114,8 @@ class BookAdapter extends TypeAdapter<Book> {
       ..writeByte(6)
       ..write(obj.chapter)
       ..writeByte(7)
-      ..write(obj.addedAt);
+      ..write(obj.addedAt)
+      ..writeByte(8)
+      ..write(obj.readingFraction);
   }
 }
