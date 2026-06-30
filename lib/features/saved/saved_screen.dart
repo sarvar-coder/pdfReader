@@ -4,8 +4,10 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'package:ember/features/saved/widgets/bookmark_tile.dart';
 import 'package:ember/features/saved/widgets/highlight_card.dart';
+import 'package:ember/models/book.dart';
 import 'package:ember/providers/bookmarks_provider.dart';
 import 'package:ember/providers/highlights_provider.dart';
+import 'package:ember/providers/library_provider.dart';
 import 'package:ember/providers/reader_provider.dart';
 import 'package:ember/theme/app_colors.dart';
 
@@ -24,8 +26,20 @@ class SavedScreen extends ConsumerStatefulWidget {
 class _SavedScreenState extends ConsumerState<SavedScreen> {
   int _tab = 0; // 0 = Highlights, 1 = Bookmarks
 
-  void _open(String bookId) {
+  void _open(String bookId, {int? page}) {
     ref.read(currentBookIdProvider.notifier).open(bookId);
+    if (page != null) {
+      Book? book;
+      for (final b in ref.read(libraryProvider)) {
+        if (b.id == bookId) {
+          book = b;
+          break;
+        }
+      }
+      if (book != null && book.totalPages > 0) {
+        ref.read(pendingJumpProvider.notifier).to(page / book.totalPages);
+      }
+    }
     widget.onOpenReader?.call();
   }
 
@@ -47,10 +61,10 @@ class _SavedScreenState extends ConsumerState<SavedScreen> {
           const SizedBox(height: 16),
           if (_tab == 0)
             for (final h in highlights)
-              HighlightCard(highlight: h, onTap: () => _open(h.bookId))
+              HighlightCard(highlight: h, onTap: () => _open(h.bookId, page: h.page))
           else
             for (final b in bookmarks)
-              BookmarkTile(bookmark: b, onTap: () => _open(b.bookId)),
+              BookmarkTile(bookmark: b, onTap: () => _open(b.bookId, page: b.page)),
         ],
       ),
     );

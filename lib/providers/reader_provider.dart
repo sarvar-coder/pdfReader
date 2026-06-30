@@ -20,6 +20,19 @@ class CurrentBookId extends Notifier<String?> {
 final currentBookIdProvider =
     NotifierProvider<CurrentBookId, String?>(CurrentBookId.new);
 
+/// A one-shot scroll target (0.0–1.0) used to open the Reader at a specific
+/// bookmark/highlight. The Reader consumes and clears it after jumping.
+class PendingJump extends Notifier<double?> {
+  @override
+  double? build() => null;
+
+  void to(double fraction) => state = fraction.clamp(0.0, 1.0);
+  void clear() => state = null;
+}
+
+final pendingJumpProvider =
+    NotifierProvider<PendingJump, double?>(PendingJump.new);
+
 /// The resolved [Book] open in the Reader (or the continue-reading book).
 final currentBookProvider = Provider<Book?>((ref) {
   final id = ref.watch(currentBookIdProvider);

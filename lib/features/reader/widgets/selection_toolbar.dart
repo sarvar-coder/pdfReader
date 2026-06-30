@@ -2,13 +2,15 @@ import 'package:flutter/material.dart';
 
 import 'package:ember/theme/app_colors.dart';
 
-/// A small dark floating bar with the four highlight swatches plus a note
-/// button. Shown on a long-press for now — the swatches are visual only until
-/// highlights are wired up (Phase 4).
+/// A small dark floating bar with the four highlight swatches. Shown over a
+/// text selection; tapping a swatch saves a highlight in that color.
 class SelectionToolbar extends StatelessWidget {
-  const SelectionToolbar({super.key, this.onDismiss});
+  const SelectionToolbar({super.key, this.onPick, this.onDismiss});
 
-  /// Called when a swatch / note button is tapped (just hides the bar for now).
+  /// Called with the chosen color when a swatch is tapped.
+  final ValueChanged<Color>? onPick;
+
+  /// Called when the dismiss button is tapped.
   final VoidCallback? onDismiss;
 
   static const List<Color> _swatches = [
@@ -30,7 +32,7 @@ class SelectionToolbar extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             for (final color in _swatches) ...[
-              _Swatch(color: color, onTap: onDismiss),
+              _Swatch(color: color, onTap: () => onPick?.call(color)),
               const SizedBox(width: 8),
             ],
             IconButton(
@@ -38,7 +40,7 @@ class SelectionToolbar extends StatelessWidget {
               iconSize: 18,
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
-              icon: const Icon(Icons.edit_outlined, color: Color(0xFFF4EBDD)),
+              icon: const Icon(Icons.close, color: Color(0xFFF4EBDD)),
             ),
           ],
         ),

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,10 +9,17 @@ import 'package:ember/features/library/dummy_data.dart';
 import 'package:ember/features/reader/reader_settings.dart';
 import 'package:ember/features/reader/widgets/selection_toolbar.dart';
 import 'package:ember/features/reader/widgets/settings_sheet.dart';
+import 'package:ember/models/bookmark.dart';
+import 'package:ember/models/highlight.dart';
+import 'package:ember/providers/bookmarks_provider.dart';
+import 'package:ember/providers/highlights_provider.dart';
 import 'package:ember/providers/library_provider.dart';
 import 'package:ember/providers/reader_provider.dart';
 import 'package:ember/services/pdf_service.dart';
 import 'package:ember/theme/app_colors.dart';
+
+/// A run of text to paint with a highlight background.
+typedef _Mark = ({String text, Color color});
 
 /// The Reader screen (sample text until Phase 3). Top/bottom chrome that hides on
 /// a page tap, sample paragraphs in the chosen typeface with one highlighted
@@ -32,7 +40,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   ReaderSettings _settings = const ReaderSettings();
   bool _chromeVisible = true;
   bool _sheetOpen = false;
-  bool _selectionVisible = false;
+
+  /// The latest selected text, captured from the [SelectionArea].
+  String? _selectedText;
 
   // ── Reading-position tracking ───────────────────────────────────────────
   final ScrollController _scroll = ScrollController();
@@ -79,20 +89,88 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     ref.read(libraryProvider.notifier).updateReadingPosition(id, fraction);
   }
 
-  void _onPageTap() {
-    setState(() {
-      if (_selectionVisible) {
-        _selectionVisible = false;
-      } else {
-        _chromeVisible = !_chromeVisible;
-      }
-    });
+  void _onPageTap() => setState(() => _chromeVisible = !_chromeVisible);
+
+  /// Saves a bookmark at the current page of the open book.
+  void _addBookmark() {
+    final book = ref.read(currentBookProvider);
+    if (book == null) return;
+    ref.read(bookmarksProvider.notifier).add(
+          Bookmark(
+            id: 'bm-${DateTime.now().microsecondsSinceEpoch}',
+            bookId: book.id,
+            page: book.currentPage,
+            chapter: book.chapter ?? 'Page ${book.currentPage}',
+            note: book.title,
+          ),
+        );
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Bookmarked page ${book.currentPage}')),
+    );
+  }
+
+  /// Saves the current text selection as a highlight in [color].
+  void _saveHighlight(Color color) {
+    final raw = _selectedText?.trim();
+    final book = ref.read(currentBookProvider);
+    if (raw == null || raw.isEmpty || book == null) return;
+    // Collapse whitespace so the quote matches the reflowed page text.
+    final quote = raw.replaceAll(RegExp(r'\s+'), ' ');
+
+    ref.read(highlightsProvider.notifier).add(
+          Highlight(
+            id: 'hl-${DateTime.now().microsecondsSinceEpoch}',
+            bookId: book.id,
+            quote: quote,
+            colorValue: color.toARGB32(),
+            page: book.currentPage,
+            chapter: book.chapter ?? '',
+          ),
+        );
+    _selectedText = null;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Highlight saved')),
+    );
+  }
+
+  /// Custom selection menu: the four color swatches, anchored above the
+  /// selection.
+  Widget _buildHighlightMenu(
+    BuildContext context,
+    SelectableRegionState selState,
+  ) {
+    final anchor = selState.contextMenuAnchors.primaryAnchor;
+    final width = MediaQuery.sizeOf(context).width;
+    final topInset = MediaQuery.paddingOf(context).top;
+    return Stack(
+      children: [
+        Positioned(
+          left: (anchor.dx - 110).clamp(8.0, math.max(8.0, width - 228)),
+          top: math.max(anchor.dy - 56, topInset + 8),
+          child: SelectionToolbar(
+            onPick: (color) {
+              _saveHighlight(color);
+              selState.hideToolbar();
+              selState.clearSelection();
+            },
+            onDismiss: () {
+              selState.hideToolbar();
+              selState.clearSelection();
+            },
+          ),
+        ),
+      ],
+    );
   }
 
   /// Chooses what the page shows: a spinner while parsing, the demo prose when
   /// the book has no PDF (seeded books), an empty-text notice for scanned PDFs,
   /// or the reflowed extracted text.
-  Widget _buildPage(AsyncValue<PdfContent?> contentAsync, Color ink) {
+  Widget _buildPage(
+    AsyncValue<PdfContent?> contentAsync,
+    Color ink,
+    List<_Mark> marks,
+  ) {
     return contentAsync.when(
       loading: () => Center(
         child: CircularProgressIndicator(color: ink.withValues(alpha: 0.5)),
@@ -110,7 +188,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             settings: _settings,
             heading: 'Roots',
             paragraphs: DummyData.sampleParagraphs,
-            highlightTarget: DummyData.highlightedSentence,
+            marks: [
+              (
+                text: DummyData.highlightedSentence,
+                color: AppColors.gold.withValues(alpha: 0.45),
+              ),
+            ],
           );
         }
         final text = content.fullText.trim();
@@ -130,6 +213,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           controller: _scroll,
           settings: _settings,
           paragraphs: _toParagraphs(text),
+          marks: marks,
         );
       },
     );
@@ -148,6 +232,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       _scroll.jumpTo((fraction.clamp(0.0, 1.0)) * max);
       _restoredBookId = _positionBookId;
       _needsRestore = false;
+      // Consume a one-shot bookmark jump, if any.
+      if (ref.read(pendingJumpProvider) != null) {
+        ref.read(pendingJumpProvider.notifier).clear();
+      }
     });
   }
 
@@ -170,12 +258,33 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final contentAsync = ref.watch(readerContentProvider);
     _hasPdf = ref.watch(currentPdfPathProvider) != null;
 
+    // Saved highlights for the open book, painted onto the extracted text.
+    final marks = <_Mark>[
+      for (final h in ref.watch(highlightsProvider))
+        if (book != null && h.bookId == book.id)
+          (text: h.quote, color: h.color.withValues(alpha: 0.4)),
+    ];
+
     // A different book is open → set up to restore its saved position.
     if (book?.id != _positionBookId) {
       _positionBookId = book?.id;
       _pendingRestoreFraction = book?.readingFraction ?? 0;
       _restoredBookId = null;
       _needsRestore = _hasPdf;
+    }
+
+    // A bookmark/highlight tap requested a jump → override the restore target.
+    final pendingJump = ref.watch(pendingJumpProvider);
+    if (pendingJump != null && _hasPdf) {
+      _pendingRestoreFraction = pendingJump;
+      _restoredBookId = null;
+      _needsRestore = true;
+    } else if (pendingJump != null) {
+      // Target book has no scrollable PDF (e.g. the demo book) — drop it so it
+      // can't leak onto the next real book opened.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) ref.read(pendingJumpProvider.notifier).clear();
+      });
     }
 
     final title = book?.title ?? 'Untitled';
@@ -201,18 +310,19 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                       _savePosition();
                       widget.onBack?.call();
                     },
-                    onBookmark: () => ScaffoldMessenger.of(context)
-                        .showSnackBar(SnackBar(
-                            content: Text('Bookmarked page $currentPage'))),
+                    onBookmark: _addBookmark,
                     onSettings: () => setState(() => _sheetOpen = true),
                   ),
                   Expanded(
-                    child: GestureDetector(
-                      onTap: _onPageTap,
-                      onLongPress: () =>
-                          setState(() => _selectionVisible = true),
-                      behavior: HitTestBehavior.opaque,
-                      child: _buildPage(contentAsync, theme.ink),
+                    child: SelectionArea(
+                      onSelectionChanged: (value) =>
+                          _selectedText = value?.plainText,
+                      contextMenuBuilder: _buildHighlightMenu,
+                      child: GestureDetector(
+                        onTap: _onPageTap,
+                        behavior: HitTestBehavior.deferToChild,
+                        child: _buildPage(contentAsync, theme.ink, marks),
+                      ),
                     ),
                   ),
                   _BottomChrome(
@@ -225,19 +335,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               ),
             ),
           ),
-
-          // ── Selection toolbar (visual only) ────────────────────────────
-          if (_selectionVisible)
-            Positioned(
-              top: 130,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: SelectionToolbar(
-                  onDismiss: () => setState(() => _selectionVisible = false),
-                ),
-              ),
-            ),
 
           // ── Settings sheet + scrim ─────────────────────────────────────
           IgnorePointer(
@@ -443,21 +540,21 @@ class _IconBtn extends StatelessWidget {
 }
 
 /// The scrollable reading page: an optional heading and the reflowed paragraphs
-/// in the chosen typeface, optionally highlighting one sentence.
+/// in the chosen typeface, painting any highlight [marks] over matching text.
 class _PageBody extends StatelessWidget {
   const _PageBody({
     required this.controller,
     required this.settings,
     required this.paragraphs,
     this.heading,
-    this.highlightTarget,
+    this.marks = const [],
   });
 
   final ScrollController controller;
   final ReaderSettings settings;
   final List<String> paragraphs;
   final String? heading;
-  final String? highlightTarget;
+  final List<_Mark> marks;
 
   @override
   Widget build(BuildContext context) {
@@ -485,7 +582,7 @@ class _PageBody extends StatelessWidget {
               child: _Paragraph(
                 text: paragraph,
                 settings: settings,
-                highlightTarget: highlightTarget,
+                marks: marks,
               ),
             ),
         ],
@@ -494,44 +591,53 @@ class _PageBody extends StatelessWidget {
   }
 }
 
-/// Renders one paragraph, wrapping [highlightTarget] (if present) in a gold
-/// highlight. Applies the live font/typeface/spacing via [ReaderSettings].
+/// Renders one paragraph, painting a background behind any [marks] whose text
+/// occurs in it. Applies the live font/typeface/spacing via [ReaderSettings].
 class _Paragraph extends StatelessWidget {
   const _Paragraph({
     required this.text,
     required this.settings,
-    this.highlightTarget,
+    this.marks = const [],
   });
 
   final String text;
   final ReaderSettings settings;
-  final String? highlightTarget;
+  final List<_Mark> marks;
 
   @override
   Widget build(BuildContext context) {
     final base = settings.bodyStyle();
-    final target = highlightTarget;
-    final start = target == null ? -1 : text.indexOf(target);
+    if (marks.isEmpty) return Text(text, style: base);
 
-    if (target == null || start < 0) {
-      return Text(text, style: base);
+    // Collect every (start, end, color) range, then drop overlaps left-to-right.
+    final ranges = <({int start, int end, Color color})>[];
+    for (final mark in marks) {
+      if (mark.text.isEmpty) continue;
+      var idx = text.indexOf(mark.text);
+      while (idx >= 0) {
+        ranges.add((start: idx, end: idx + mark.text.length, color: mark.color));
+        idx = text.indexOf(mark.text, idx + mark.text.length);
+      }
     }
+    if (ranges.isEmpty) return Text(text, style: base);
+    ranges.sort((a, b) => a.start.compareTo(b.start));
 
-    final end = start + target.length;
-    return Text.rich(
-      TextSpan(
-        style: base,
-        children: [
-          if (start > 0) TextSpan(text: text.substring(0, start)),
-          TextSpan(
-            text: target,
-            style: TextStyle(
-              backgroundColor: AppColors.gold.withValues(alpha: 0.45),
-            ),
-          ),
-          if (end < text.length) TextSpan(text: text.substring(end)),
-        ],
-      ),
-    );
+    final spans = <InlineSpan>[];
+    var cursor = 0;
+    for (final r in ranges) {
+      if (r.start < cursor) continue; // overlaps an earlier mark
+      if (r.start > cursor) {
+        spans.add(TextSpan(text: text.substring(cursor, r.start)));
+      }
+      spans.add(TextSpan(
+        text: text.substring(r.start, r.end),
+        style: TextStyle(backgroundColor: r.color),
+      ));
+      cursor = r.end;
+    }
+    if (cursor < text.length) {
+      spans.add(TextSpan(text: text.substring(cursor)));
+    }
+    return Text.rich(TextSpan(style: base, children: spans));
   }
 }
