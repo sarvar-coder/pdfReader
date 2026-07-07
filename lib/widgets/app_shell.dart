@@ -6,17 +6,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 
 import 'package:ember/features/library/library_screen.dart';
-import 'package:ember/features/reader/reader_screen.dart';
-import 'package:ember/features/saved/saved_screen.dart';
 import 'package:ember/features/stats/stats_screen.dart';
 import 'package:ember/providers/library_provider.dart';
 import 'package:ember/theme/app_colors.dart';
 
-/// The four top-level destinations, in nav order.
+/// The two top-level destinations, in nav order. The reader opens as a
+/// full-screen route (no nav bar), so it is not a tab.
 enum _Tab {
   library('Library', Icons.menu_book_rounded),
-  reading('Reading', Icons.auto_stories_rounded),
-  saved('Saved', Icons.bookmark_rounded),
   stats('Stats', Icons.local_fire_department_rounded);
 
   const _Tab(this.label, this.icon);
@@ -25,9 +22,7 @@ enum _Tab {
   final IconData icon;
 }
 
-/// Hosts the current screen and a frosted bottom nav bar. The selected tab is
-/// kept in local state for now; real screens replace the placeholders in later
-/// steps (1.3–1.6).
+/// Hosts the current screen and a frosted bottom nav bar.
 class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key});
 
@@ -84,14 +79,7 @@ class _AppShellState extends ConsumerState<AppShell> {
         index: _index,
         children: [
           LibraryScreen(
-            onOpenReader: () => setState(() => _index = _Tab.reading.index),
             onOpenStats: () => setState(() => _index = _Tab.stats.index),
-          ),
-          ReaderScreen(
-            onBack: () => setState(() => _index = _Tab.library.index),
-          ),
-          SavedScreen(
-            onOpenReader: () => setState(() => _index = _Tab.reading.index),
           ),
           const StatsScreen(),
         ],

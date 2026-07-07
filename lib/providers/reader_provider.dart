@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:ember/features/reader/reader_settings.dart';
 import 'package:ember/models/book.dart';
 import 'package:ember/providers/library_provider.dart';
 import 'package:ember/providers/pdf_provider.dart';
@@ -44,7 +45,7 @@ final currentBookProvider = Provider<Book?>((ref) {
   return ref.watch(continueReadingProvider);
 });
 
-/// On-disk PDF path for the open book, or null for seeded books without a file.
+/// On-disk PDF path for the open book, or null when the file is missing.
 /// Kept separate from [currentBookProvider] so saving the scroll position (which
 /// produces a new [Book] instance with the same id) does not re-run extraction.
 final currentPdfPathProvider = Provider<String?>((ref) {
@@ -55,9 +56,50 @@ final currentPdfPathProvider = Provider<String?>((ref) {
 });
 
 /// Extracted text for the open book. Returns null when the book has no PDF on
-/// disk (the seeded demo books), so the Reader falls back to sample prose.
+/// disk, so the Reader can show a missing-file notice.
 final readerContentProvider = FutureProvider.autoDispose<PdfContent?>((ref) async {
   final path = ref.watch(currentPdfPathProvider);
   if (path == null) return null;
   return ref.watch(pdfServiceProvider).extract(path);
 });
+
+/// Reader settings persisted in the `prefs` Hive box, so the chosen theme, font
+/// size, typeface and line spacing survive relaunches.
+class ReaderSettingsNotifier extends Notifier<ReaderSettings> {
+  static const _themeKey = 'rs_theme';
+  static const _fontKey = 'rs_font';
+  static const _faceKey = 'rs_face';
+  static const _spacingKey = 'rs_spacing';
+
+  @override
+  ReaderSettings build() {
+    final box = ref.watch(storageServiceProvider).prefs;
+    const d = ReaderSettings();
+    final themeIdx = box.get(_themeKey, defaultValue: d.theme.index) as int;
+    final faceIdx = box.get(_faceKey, defaultValue: d.typeface.index) as int;
+    return ReaderSettings(
+      theme: ReaderTheme.values[themeIdx.clamp(0, ReaderTheme.values.length - 1)],
+      fontSize: (box.get(_fontKey, defaultValue: d.fontSize) as num).toDouble(),
+      typeface:
+          ReaderTypeface.values[faceIdx.clamp(0, ReaderTypeface.values.length - 1)],
+      lineSpacing:
+          (box.get(_spacingKey, defaultValue: d.lineSpacing) as num).toDouble(),
+    );
+  }
+
+  Future<void> update(ReaderSettings s) async {
+    state = s;
+    final box = ref.read(storageServiceProvider).prefs;
+    await box.putAll({
+      _themeKey: s.theme.index,
+      _fontKey: s.fontSize,
+      _faceKey: s.typeface.index,
+      _spacingKey: s.lineSpacing,
+    });
+  }
+}
+
+final readerSettingsProvider =
+    NotifierProvider<ReaderSettingsNotifier, ReaderSettings>(
+  ReaderSettingsNotifier.new,
+);

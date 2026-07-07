@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 
@@ -18,34 +19,37 @@ class PdfContent {
 /// Reads PDFs from disk using `syncfusion_flutter_pdf`. The reader reflows the
 /// extracted text, so layout/images are dropped (acceptable for prose).
 ///
-/// Parsing runs on the calling isolate; large files may briefly block the UI.
-/// Moving this to a background isolate is a later polish task.
+/// Parsing is CPU-bound and runs in a background isolate ([Isolate.run]) so it
+/// never blocks the UI thread — syncfusion is pure Dart, so it works off the
+/// main isolate. Without this, large files trigger an Android ANR.
 class PdfService {
   const PdfService();
 
-  /// Page count only — cheap enough to run at import time.
-  Future<int> pageCount(String path) async {
-    final document = PdfDocument(inputBytes: await File(path).readAsBytes());
-    try {
-      return document.pages.count;
-    } finally {
-      document.dispose();
-    }
-  }
+  /// Page count only — parsed off the main isolate at import time.
+  Future<int> pageCount(String path) => Isolate.run(() {
+        final document =
+            PdfDocument(inputBytes: File(path).readAsBytesSync());
+        try {
+          return document.pages.count;
+        } finally {
+          document.dispose();
+        }
+      });
 
   /// Full per-page text extraction, used when opening the reader.
-  Future<PdfContent> extract(String path) async {
-    final document = PdfDocument(inputBytes: await File(path).readAsBytes());
-    try {
-      final count = document.pages.count;
-      final extractor = PdfTextExtractor(document);
-      final pages = <String>[
-        for (var i = 0; i < count; i++)
-          extractor.extractText(startPageIndex: i, endPageIndex: i),
-      ];
-      return PdfContent(pageCount: count, pages: pages);
-    } finally {
-      document.dispose();
-    }
-  }
+  Future<PdfContent> extract(String path) => Isolate.run(() {
+        final document =
+            PdfDocument(inputBytes: File(path).readAsBytesSync());
+        try {
+          final count = document.pages.count;
+          final extractor = PdfTextExtractor(document);
+          final pages = <String>[
+            for (var i = 0; i < count; i++)
+              extractor.extractText(startPageIndex: i, endPageIndex: i),
+          ];
+          return PdfContent(pageCount: count, pages: pages);
+        } finally {
+          document.dispose();
+        }
+      });
 }

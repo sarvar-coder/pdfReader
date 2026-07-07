@@ -31,7 +31,7 @@ class ShelfGrid extends StatelessWidget {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       // Cover (2:3) + a two-line name below it.
-      childAspectRatio: 0.52,
+      childAspectRatio: 0.50,
       children: [
         for (final book in books)
           _ShelfBook(
@@ -61,9 +61,13 @@ class _ShelfBook extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AspectRatio(
-            aspectRatio: 2 / 3,
-            child: BookCover(title: book.title, gradient: book.gradient),
+          // Flexible so a tight cell shrinks the cover a hair rather than
+          // overflowing the title text below it.
+          Flexible(
+            child: AspectRatio(
+              aspectRatio: 2 / 3,
+              child: BookCover(title: book.title, gradient: book.gradient),
+            ),
           ),
           const SizedBox(height: 7),
           Text(
@@ -72,7 +76,7 @@ class _ShelfBook extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: GoogleFonts.inter(
               fontSize: 12,
-              height: 1.2,
+              height: 1.15,
               fontWeight: FontWeight.w600,
               color: AppColors.ink,
             ),

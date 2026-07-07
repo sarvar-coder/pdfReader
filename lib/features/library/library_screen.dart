@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:ember/features/library/widgets/continue_card.dart';
 import 'package:ember/features/library/widgets/shelf_grid.dart';
 import 'package:ember/features/library/widgets/streak_card.dart';
+import 'package:ember/features/reader/reader_screen.dart';
 import 'package:ember/models/book.dart';
 import 'package:ember/providers/library_provider.dart';
 import 'package:ember/providers/reader_provider.dart';
@@ -15,13 +16,20 @@ import 'package:ember/widgets/empty_state.dart';
 /// The Library screen: greeting header, streak card, continue-reading card,
 /// and the shelf grid. Reads its content from the library providers.
 class LibraryScreen extends ConsumerWidget {
-  const LibraryScreen({super.key, this.onOpenReader, this.onOpenStats});
-
-  /// Opens the Reader (continue card / shelf book tap).
-  final VoidCallback? onOpenReader;
+  const LibraryScreen({super.key, this.onOpenStats});
 
   /// Opens the Stats screen (streak card tap).
   final VoidCallback? onOpenStats;
+
+  /// Opens [book] in a full-screen reader route (no bottom nav).
+  void _openReader(BuildContext context, WidgetRef ref, String bookId) {
+    ref.read(currentBookIdProvider.notifier).open(bookId);
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ReaderScreen(onBack: () => Navigator.of(context).pop()),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -57,19 +65,13 @@ class LibraryScreen extends ConsumerWidget {
               const _SectionHeader(title: 'Continue reading'),
               ContinueCard(
                 book: featured,
-                onTap: () {
-                  ref.read(currentBookIdProvider.notifier).open(featured.id);
-                  onOpenReader?.call();
-                },
+                onTap: () => _openReader(context, ref, featured.id),
               ),
             ],
             const _SectionHeader(title: 'On the shelf', action: 'Sort'),
             ShelfGrid(
               books: shelf,
-              onOpenBook: (book) {
-                ref.read(currentBookIdProvider.notifier).open(book.id);
-                onOpenReader?.call();
-              },
+              onOpenBook: (book) => _openReader(context, ref, book.id),
               onDeleteBook: (book) => _confirmDelete(context, ref, book),
               onAddPdf: () => _pickAndImportPdf(context, ref),
             ),
