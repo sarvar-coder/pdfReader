@@ -1,8 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// A generated book cover: a 2-color gradient rectangle with a left spine line
-/// and the centered title. Shared by the continue card and the shelf grid.
+/// A book cover. When [coverPath] points at a rendered thumbnail on disk it
+/// shows that real first-page image; otherwise (or if the file fails to load)
+/// it falls back to a generated 2-color gradient with the centered title.
+/// Shared by the continue card and the shelf grid.
 ///
 /// The caller controls sizing (e.g. wrap in `AspectRatio(2/3)` or a `SizedBox`).
 class BookCover extends StatelessWidget {
@@ -10,15 +14,40 @@ class BookCover extends StatelessWidget {
     super.key,
     required this.title,
     required this.gradient,
+    this.coverPath,
     this.titleSize = 12,
   });
 
   final String title;
   final List<Color> gradient;
+
+  /// Path to a rendered cover PNG, or null to draw the gradient fallback.
+  final String? coverPath;
   final double titleSize;
 
   @override
   Widget build(BuildContext context) {
+    if (coverPath != null) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        // White ground so a non-2:3 page letterboxes as clean page margin.
+        child: ColoredBox(
+          color: Colors.white,
+          child: Image.file(
+            File(coverPath!),
+            // Contain: show the whole cover, don't crop to fill.
+            fit: BoxFit.contain,
+            width: double.infinity,
+            height: double.infinity,
+            errorBuilder: (_, _, _) => _gradientCover(),
+          ),
+        ),
+      );
+    }
+    return _gradientCover();
+  }
+
+  Widget _gradientCover() {
     return ClipRRect(
       borderRadius: BorderRadius.circular(10),
       child: DecoratedBox(

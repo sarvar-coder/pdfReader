@@ -1,7 +1,10 @@
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:ui' as ui;
 
 import 'package:syncfusion_flutter_pdf/pdf.dart';
+// Prefixed: pdfrx also exports `PdfDocument`/`PdfPage`, clashing with syncfusion.
+import 'package:pdfrx/pdfrx.dart' as pdfrx;
 
 /// Extracted text content of a PDF, one entry per page.
 class PdfContent {
@@ -52,4 +55,33 @@ class PdfService {
           document.dispose();
         }
       });
+
+  /// Rendered cover width in pixels (~2x the grid cell); height follows the
+  /// page's aspect ratio.
+  static const _coverWidth = 300;
+
+  /// Rasterizes page 1 of [pdfPath] to a PNG at [outPngPath] using pdfrx
+  /// (syncfusion community can't render). Runs on the main isolate — pdfrx uses
+  /// PDFium via FFI and cannot go through [Isolate.run].
+  Future<void> renderCover(String pdfPath, String outPngPath) async {
+    final doc = await pdfrx.PdfDocument.openFile(pdfPath);
+    try {
+      final page = doc.pages.first;
+      final height = (_coverWidth * page.height / page.width).round();
+      final rendered = await page.render(width: _coverWidth, height: height);
+      if (rendered == null) return;
+      ui.Image? image;
+      try {
+        image = await rendered.createImage();
+        final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+        if (bytes == null) return;
+        await File(outPngPath).writeAsBytes(bytes.buffer.asUint8List());
+      } finally {
+        image?.dispose();
+        rendered.dispose();
+      }
+    } finally {
+      await doc.dispose();
+    }
+  }
 }

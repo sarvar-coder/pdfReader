@@ -59,6 +59,30 @@ class StorageService {
   /// Whether a book's PDF file exists on disk.
   bool pdfExistsFor(String bookId) => File(pdfPathFor(bookId)).existsSync();
 
+  /// On-disk path for a book's rendered cover thumbnail (PDF page 1 as PNG).
+  String coverPathFor(String bookId) => '$_booksDir/$bookId.png';
+
+  /// Whether a book's cover thumbnail has been rendered to disk yet.
+  bool coverExistsFor(String bookId) => File(coverPathFor(bookId)).existsSync();
+
+  /// On-disk path for a book's cached extracted text.
+  String textPathFor(String bookId) => '$_booksDir/$bookId.txt';
+
+  /// Cached extracted text for a book, or `null` when no cache exists yet.
+  /// An existing-but-empty file is a valid hit (a scanned/text-free PDF), so
+  /// the miss check is file existence, not string emptiness.
+  // ponytail: cache keyed by bookId, never invalidated — PDFs are copied once
+  // at import and never rewritten.
+  Future<String?> readTextCache(String bookId) async {
+    final file = File(textPathFor(bookId));
+    if (!file.existsSync()) return null;
+    return file.readAsString();
+  }
+
+  /// Persists extracted text so future opens skip re-parsing the PDF.
+  Future<void> writeTextCache(String bookId, String text) =>
+      File(textPathFor(bookId)).writeAsString(text);
+
   /// Copies a picked PDF into app storage as `<docs>/books/<bookId>.pdf`,
   /// creating the books directory if needed. Returns the destination path.
   Future<String> importPdfFile(String sourcePath, String bookId) async {
@@ -71,11 +95,17 @@ class StorageService {
     return dest;
   }
 
-  /// Deletes a book's PDF file if present (used when removing a book).
+  /// Deletes a book's PDF file and its text cache if present (used when
+  /// removing a book).
   Future<void> deletePdfFor(String bookId) async {
-    final file = File(pdfPathFor(bookId));
-    if (await file.exists()) {
-      await file.delete();
+    for (final file in [
+      File(pdfPathFor(bookId)),
+      File(textPathFor(bookId)),
+      File(coverPathFor(bookId)),
+    ]) {
+      if (await file.exists()) {
+        await file.delete();
+      }
     }
   }
 }

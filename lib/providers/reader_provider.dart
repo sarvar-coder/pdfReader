@@ -58,9 +58,24 @@ final currentPdfPathProvider = Provider<String?>((ref) {
 /// Extracted text for the open book. Returns null when the book has no PDF on
 /// disk, so the Reader can show a missing-file notice.
 final readerContentProvider = FutureProvider.autoDispose<PdfContent?>((ref) async {
+  // Watch the path (a stable String) — not the Book — so saving the scroll
+  // position (which mints a new Book instance) does not re-run extraction and
+  // flash the reader. `ref.read` the book only for id/totalPages (no subscription).
   final path = ref.watch(currentPdfPathProvider);
   if (path == null) return null;
-  return ref.watch(pdfServiceProvider).extract(path);
+  final book = ref.read(currentBookProvider)!; // path != null ⇒ book exists
+  final storage = ref.watch(storageServiceProvider);
+
+  // Cache hit: skip PDF parsing entirely. `fullText` is all the reader uses.
+  final cached = await storage.readTextCache(book.id);
+  if (cached != null) {
+    return PdfContent(pageCount: book.totalPages, pages: [cached]);
+  }
+  // Miss (opened before the import prefetch finished): parse once, then cache
+  // so every reopen is an instant file read.
+  final content = await ref.watch(pdfServiceProvider).extract(path);
+  await storage.writeTextCache(book.id, content.fullText);
+  return content;
 });
 
 /// Reader settings persisted in the `prefs` Hive box, so the chosen theme, font

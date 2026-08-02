@@ -734,6 +734,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                     inkColor: theme.ink,
                     pageIndex: _currentPage,
                     pageCount: _pageCount,
+                    // Label shows real PDF pages; slider stays in reflow pages.
+                    labelTotal: book.totalPages > 0 ? book.totalPages : _pageCount,
+                    labelPage: book.totalPages > 0
+                        ? (_currentFraction * (book.totalPages - 1)).round() + 1
+                        : _currentPage + 1,
                     onSeek: _seekTo,
                     onContents: () => _openContents(book),
                   ),
@@ -879,6 +884,8 @@ class _BottomChrome extends StatelessWidget {
     required this.inkColor,
     required this.pageIndex,
     required this.pageCount,
+    required this.labelPage,
+    required this.labelTotal,
     required this.onSeek,
     required this.onContents,
   });
@@ -887,6 +894,11 @@ class _BottomChrome extends StatelessWidget {
   final Color inkColor;
   final int pageIndex;
   final int pageCount;
+
+  /// Real PDF page number / total for the counter label (the slider still runs
+  /// on the reflow-page [pageIndex]/[pageCount]).
+  final int labelPage;
+  final int labelTotal;
   final ValueChanged<int> onSeek;
   final VoidCallback onContents;
 
@@ -895,7 +907,7 @@ class _BottomChrome extends StatelessWidget {
     final hasPages = pageCount > 1;
     final maxV = hasPages ? (pageCount - 1).toDouble() : 1.0;
     final value = pageIndex.toDouble().clamp(0.0, maxV);
-    final label = pageCount > 0 ? '${pageIndex + 1}/$pageCount' : '';
+    final label = labelTotal > 0 ? '$labelPage/$labelTotal' : '';
     return _ChromeAnimator(
       visible: visible,
       slideUp: false,

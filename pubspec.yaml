@@ -41,6 +41,8 @@ dependencies:
   path_provider: ^2.1.6
   file_picker: ^11.0.2
   syncfusion_flutter_pdf: ^33.2.13
+  # Rasterizes PDF page 1 into a real cover thumbnail (syncfusion can't render).
+  pdfrx: ^1.0.0
   # Pinned to 1.8.1: 1.9.0 requires AGP 9 / Kotlin 2.4 / compileSdk 37,
   # which is ahead of this project's toolchain (Flutter 3.41 / AGP 8.11 / Kotlin 2.2).
   receive_sharing_intent: 1.8.1

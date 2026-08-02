@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:ember/models/book.dart';
@@ -7,10 +9,41 @@ import 'package:ember/providers/storage_provider.dart';
 /// The library: all books, backed by the Hive `books` box. Mutations write
 /// through to Hive and refresh the in-memory list so the UI rebuilds.
 class LibraryNotifier extends Notifier<List<Book>> {
+  bool _coversChecked = false;
+
   @override
   List<Book> build() {
     final box = ref.watch(storageServiceProvider).books;
-    return box.values.toList(growable: false);
+    final books = box.values.toList(growable: false);
+    // One-time backfill of covers for books imported before covers existed.
+    if (!_coversChecked) {
+      _coversChecked = true;
+      Future(() => _ensureCovers());
+    }
+    return books;
+  }
+
+  /// Renders a cover thumbnail for any book that lacks one, then refreshes the
+  /// list so the grid picks up the new PNGs. Best-effort and sequential — cover
+  /// rendering is not worth blocking or racing on.
+  Future<void> _ensureCovers() async {
+    final storage = ref.read(storageServiceProvider);
+    final service = ref.read(pdfServiceProvider);
+    var changed = false;
+    for (final book in storage.books.values) {
+      if (storage.coverExistsFor(book.id)) continue;
+      if (!storage.pdfExistsFor(book.id)) continue;
+      try {
+        await service.renderCover(
+          storage.pdfPathFor(book.id),
+          storage.coverPathFor(book.id),
+        );
+        changed = true;
+      } catch (_) {/* keep the gradient fallback */}
+    }
+    if (changed) {
+      state = storage.books.values.toList(growable: false);
+    }
   }
 
   /// Adds (or replaces) a book and persists it.
@@ -31,12 +64,25 @@ class LibraryNotifier extends Notifier<List<Book>> {
     final dest = await storage.importPdfFile(sourcePath, id);
 
     // Best-effort page count; a parse failure still adds the book (pages = 0).
+    final service = ref.read(pdfServiceProvider);
     var pageCount = 0;
     try {
-      pageCount = await ref.read(pdfServiceProvider).pageCount(dest);
+      pageCount = await service.pageCount(dest);
     } catch (_) {
       pageCount = 0;
     }
+
+    // Prefetch the full text off the UI thread and cache it, so the first open
+    // is instant. Detached (not awaited) so import returns immediately; if the
+    // user opens before it finishes, the reader extracts on demand instead.
+    // ponytail: two isolate opens (count now, text in background) — both off-UI,
+    // import never blocks.
+    unawaited(() async {
+      try {
+        final content = await service.extract(dest);
+        await storage.writeTextCache(id, content.fullText);
+      } catch (_) {/* first open will extract on demand */}
+    }());
 
     final palette = _coverGradients[title.hashCode.abs() % _coverGradients.length];
     final book = Book(
@@ -49,6 +95,16 @@ class LibraryNotifier extends Notifier<List<Book>> {
     );
     await storage.books.put(id, book);
     state = storage.books.values.toList(growable: false);
+
+    // Render the real cover off the critical path; the tile shows the gradient
+    // until this lands, then the state bump swaps in the image. Same detached
+    // best-effort style as the text prefetch above.
+    unawaited(() async {
+      try {
+        await service.renderCover(dest, storage.coverPathFor(id));
+        state = storage.books.values.toList(growable: false);
+      } catch (_) {/* gradient fallback stays */}
+    }());
     return book;
   }
 
@@ -108,12 +164,10 @@ final continueReadingProvider = Provider<Book?>((ref) {
   );
 });
 
-/// Books shown in the shelf grid (everything except the featured book).
-final shelfProvider = Provider<List<Book>>((ref) {
-  final books = ref.watch(libraryProvider);
-  final featured = ref.watch(continueReadingProvider);
-  return books.where((b) => b.id != featured?.id).toList(growable: false);
-});
+/// Books shown in the shelf grid: the whole library.
+final shelfProvider = Provider<List<Book>>(
+  (ref) => ref.watch(libraryProvider),
+);
 
 /// Count of books currently in progress (for the header subtitle).
 final inProgressCountProvider = Provider<int>(

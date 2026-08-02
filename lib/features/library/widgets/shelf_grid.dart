@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'package:ember/features/library/widgets/book_cover.dart';
 import 'package:ember/models/book.dart';
+import 'package:ember/providers/storage_provider.dart';
 import 'package:ember/theme/app_colors.dart';
 
 /// The 3-column shelf: a cover + title/author per book, plus a dashed
@@ -66,7 +68,18 @@ class _ShelfBook extends StatelessWidget {
           Flexible(
             child: AspectRatio(
               aspectRatio: 2 / 3,
-              child: BookCover(title: book.title, gradient: book.gradient),
+              child: Consumer(
+                builder: (context, ref, _) {
+                  final storage = ref.watch(storageServiceProvider);
+                  return BookCover(
+                    title: book.title,
+                    gradient: book.gradient,
+                    coverPath: storage.coverExistsFor(book.id)
+                        ? storage.coverPathFor(book.id)
+                        : null,
+                  );
+                },
+              ),
             ),
           ),
           const SizedBox(height: 7),

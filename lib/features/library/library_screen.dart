@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import 'package:ember/features/library/widgets/continue_card.dart';
 import 'package:ember/features/library/widgets/shelf_grid.dart';
 import 'package:ember/features/library/widgets/streak_card.dart';
 import 'package:ember/features/reader/reader_screen.dart';
@@ -13,8 +12,8 @@ import 'package:ember/providers/reader_provider.dart';
 import 'package:ember/theme/app_colors.dart';
 import 'package:ember/widgets/empty_state.dart';
 
-/// The Library screen: greeting header, streak card, continue-reading card,
-/// and the shelf grid. Reads its content from the library providers.
+/// The Library screen: greeting header, streak card, and the shelf grid.
+/// Reads its content from the library providers.
 class LibraryScreen extends ConsumerWidget {
   const LibraryScreen({super.key, this.onOpenStats});
 
@@ -34,7 +33,6 @@ class LibraryScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final books = ref.watch(libraryProvider);
-    final featured = ref.watch(continueReadingProvider);
     final shelf = ref.watch(shelfProvider);
     final inProgress = ref.watch(inProgressCountProvider);
 
@@ -61,13 +59,6 @@ class LibraryScreen extends ConsumerWidget {
             )
           else ...[
             StreakCard(onTap: onOpenStats),
-            if (featured != null) ...[
-              const _SectionHeader(title: 'Continue reading'),
-              ContinueCard(
-                book: featured,
-                onTap: () => _openReader(context, ref, featured.id),
-              ),
-            ],
             const _SectionHeader(title: 'On the shelf', action: 'Sort'),
             ShelfGrid(
               books: shelf,
