@@ -83,6 +83,26 @@ class StorageService {
   Future<void> writeTextCache(String bookId, String text) =>
       File(textPathFor(bookId)).writeAsString(text);
 
+  /// On-disk path for a book's notebook (the reader's own written notes).
+  String notePathFor(String bookId) => '$_booksDir/$bookId.note.txt';
+
+  /// A book's notebook, or `''` when nothing has been written yet.
+  Future<String> readNote(String bookId) async {
+    final file = File(notePathFor(bookId));
+    if (!file.existsSync()) return '';
+    return file.readAsString();
+  }
+
+  /// Persists a book's notebook, creating the books directory if the book was
+  /// never imported through [importPdfFile] (e.g. a shared-in PDF).
+  Future<void> writeNote(String bookId, String text) async {
+    final dir = Directory(_booksDir);
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    await File(notePathFor(bookId)).writeAsString(text);
+  }
+
   /// Copies a picked PDF into app storage as `<docs>/books/<bookId>.pdf`,
   /// creating the books directory if needed. Returns the destination path.
   Future<String> importPdfFile(String sourcePath, String bookId) async {
@@ -95,13 +115,14 @@ class StorageService {
     return dest;
   }
 
-  /// Deletes a book's PDF file and its text cache if present (used when
-  /// removing a book).
+  /// Deletes every file derived from a book's id — PDF, text cache, cover and
+  /// notebook (used when removing a book).
   Future<void> deletePdfFor(String bookId) async {
     for (final file in [
       File(pdfPathFor(bookId)),
       File(textPathFor(bookId)),
       File(coverPathFor(bookId)),
+      File(notePathFor(bookId)),
     ]) {
       if (await file.exists()) {
         await file.delete();
