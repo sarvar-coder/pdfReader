@@ -79,9 +79,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   List<Block> _blocks = const [];
   String? _blocksBookId;
 
+  /// Captured while the element is still mounted. `ref` throws once it is
+  /// defunct, and [_endSession] runs from [dispose] — reading providers there
+  /// threw before this, which both lost the session and skipped the rest of
+  /// dispose (leaking the lifecycle observer).
+  late final ProviderContainer _providers;
+
   @override
   void initState() {
     super.initState();
+    _providers = ProviderScope.containerOf(context, listen: false);
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -125,7 +132,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final now = DateTime.now();
     final minutes = now.difference(start).inMinutes;
     var endPage = _sessionStartPage;
-    for (final b in ref.read(libraryProvider)) {
+    for (final b in _providers.read(libraryProvider)) {
       if (b.id == id) {
         endPage = b.currentPage;
         break;
@@ -134,7 +141,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final pagesRead = (endPage - _sessionStartPage).clamp(0, 1 << 30);
     if (minutes <= 0 && pagesRead <= 0) return; // ignore trivial opens
 
-    ref.read(readingSessionsProvider.notifier).add(
+    _providers.read(readingSessionsProvider.notifier).add(
           ReadingSession(
             id: 'rs-${now.microsecondsSinceEpoch}',
             bookId: id,

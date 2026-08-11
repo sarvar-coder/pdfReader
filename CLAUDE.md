@@ -32,7 +32,16 @@ dart run flutter_launcher_icons        # icons
 dart run flutter_native_splash:create  # splash
 ```
 
-There is no real test suite. Verify changes by running the app.
+The real tests are three files, always named explicitly so the rasterizer above never runs:
+
+```bash
+flutter test test/reflow_test.dart test/note_page_test.dart test/note_screen_test.dart
+```
+
+`reflow_test` guards block classification, `note_page_test` the notes page-grid arithmetic, and
+`note_screen_test` drives the notes screen itself (paging, swipe, saving) through a `_FakeStorage`
+that `implements StorageService` — its constructor is private, so a fake cannot extend it. Coverage
+stops there; everything else is verified by running the app.
 
 ## Toolchain constraints
 
@@ -87,7 +96,9 @@ fallback (`_coverGradients`, assigned by title hash).
 
 Shared by the reader (a book's extracted text) and the notes screen (a book's notebook), so both
 read identically. Public surface is only `toBlocks`, `Block`/`BlockKind`, `Mark`, `PagedBody`,
-`Paragraph` and `kIndent` — everything else is private to that file.
+`Paragraph`, `kIndent` and `kPagePadding` — everything else is private to that file. `kPagePadding`
+is the page box inset; the notes editor measures its own grid against the same box, so the two must
+not drift apart again (they were duplicated constants).
 
 Text → `Block`s (`toBlocks` classifies each line as body / title / subtitle via keyword, numbering,
 ALL-CAPS and Title-Case heuristics) → `_PagedBodyState._paginate` measures blocks with a
@@ -110,12 +121,36 @@ ALL-CAPS and Title-Case heuristics) → `_PagedBodyState._paginate` measures blo
 ### Notes (`features/notes/note_screen.dart`)
 
 One notebook per book, a plain text file — no Hive box, no model, no provider; the screen reads and
-writes it through `storageServiceProvider`. Pushed as a full-screen route from the reader's
-`edit_note` icon. The book icon in its top bar toggles writing mode (one `expands: true` `TextField`)
-and reading mode (`PagedBody` over `toBlocks(text)`), and both render with the live
-`ReaderSettings`. Saves are debounced 800 ms and repeated on mode switch, back and app pause; `_saved`
-makes an unchanged notebook a no-op write. The reader's session timer keeps running underneath, so
-time spent writing counts as reading time.
+writes it through `storageServiceProvider` — captured into a `_storage` field while mounted, because
+`ref` throws once the element is defunct and `dispose` runs the last save. Pushed as a full-screen
+route from the reader's `edit_note` icon. The book icon in its top bar toggles writing and reading
+(`PagedBody` over `toBlocks(text)`) mode; both render with the live `ReaderSettings`, and both turn
+pages horizontally, by swipe or by the `‹ n/m ›` chevrons under the page. Saves are debounced 800 ms
+and repeated on mode switch, back, dispose and app pause; `_saved` makes an unchanged notebook a
+no-op write. The reader's session timer keeps running underneath, so time spent writing counts as
+reading time.
+
+Writing mode is **not** a `PageView` — it is one natural-height `TextField` inside the screen's own
+`SingleChildScrollView`, whose offset is quantized to whole lines. Four things hold it up:
+
+- `measuredLineHeight` measures the line box with a `TextPainter` and the field's forced strut.
+  `fontSize * lineSpacing` is the nominal value and it is **not** good enough: the engine rounds a
+  line box up (30.6 → 31.0), and a third of a pixel per line puts the grid out by two lines within a
+  few pages. `ReaderSettings.lineHeight` is fine for slack, never for a grid.
+- A trailing `SizedBox` of one full viewport makes `maxScrollExtent` exactly the field's own height,
+  so the last page lands on the grid instead of clamping short and repeating the previous page.
+- `_PagedOnlyScrollPhysics` overrides `allowUserScrolling` only. `NeverScrollableScrollPhysics` also
+  clears `allowImplicitScrolling`, which makes `RenderEditable.showOnScreen` a no-op and strands the
+  caret off-screen while typing.
+- The swipe `GestureDetector` must be the **topmost** child of the `Stack` with
+  `HitTestBehavior.translucent`. `Stack` hit-tests its last child first, so it is routed before the
+  `TextField`'s own `TapAndHorizontalDragGestureRecognizer` and wins the Android arena; an *ancestor*
+  detector loses it. Taps, long-press and selection handles still reach the field underneath.
+
+`_settle` (on `ScrollEndNotification` at `depth == 0`) pulls the offset back onto the grid after the
+caret reveal that follows a keystroke; `notePageFor` rounds **up** going forward and **down** going
+back, never to nearest. `_reanchor` holds the top *line* index across a grid change, so opening the
+keyboard doesn't walk the view backwards.
 
 ### Reading position and sessions
 
@@ -129,7 +164,9 @@ saving the scroll position mints a new `Book` instance, and watching it would re
 flash the reader on every swipe. Preserve that indirection.
 
 Reading sessions are timed in `_ReaderScreenState`: started on open, ended in `dispose` and on
-app-lifecycle pause/hide/detach. Sessions with 0 minutes and 0 pages are dropped. `statsProvider`
+app-lifecycle pause/hide/detach. `_endSession` goes through a `ProviderContainer` captured in
+`initState`, not `ref` — Riverpod 3 throws unconditionally on `ref` from `dispose`, and because
+`_endSession` is sync that threw before `removeObserver`/`_pageController.dispose()` could run. Sessions with 0 minutes and 0 pages are dropped. `statsProvider`
 derives streak, longest streak, week dots, heatmap levels and totals purely from those sessions plus
 the library — there is no stored streak counter.
 

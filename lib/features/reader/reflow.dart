@@ -47,6 +47,11 @@ class _Frag {
 /// First-line indent prepended to body paragraphs (two em-spaces).
 const String kIndent = '  ';
 
+/// The page box inset. Shared by every reflowed page and by the notes editor —
+/// writing mode measures its line grid against the same box reading mode
+/// paginates against, so the two modes stay optically aligned.
+const EdgeInsets kPagePadding = EdgeInsets.fromLTRB(26, 14, 26, 24);
+
 /// Title style: the body style, bold and noticeably larger.
 TextStyle _titleStyle(ReaderSettings s) => s.bodyStyle().copyWith(
       fontWeight: FontWeight.w700,
@@ -209,8 +214,6 @@ class PagedBody extends StatefulWidget {
 }
 
 class _PagedBodyState extends State<PagedBody> {
-  static const _pad = EdgeInsets.fromLTRB(26, 14, 26, 24);
-
   /// Heading top/bottom margins as a multiple of the font size, per tier.
   static const _titleTop = 0.9;
   static const _titleBottom = 0.4;
@@ -227,13 +230,13 @@ class _PagedBodyState extends State<PagedBody> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final width = constraints.maxWidth - _pad.horizontal;
+        final width = constraints.maxWidth - kPagePadding.horizontal;
         // Shave ~half a line of slack: continuation slices can re-wrap to one
         // extra line vs what _paginate measured, so leave headroom (the inner
         // scroll view below catches any remainder without an overflow stripe).
-        final slack = widget.settings.fontSize * widget.settings.lineSpacing * 0.5;
+        final slack = widget.settings.lineHeight * 0.5;
         final height =
-            math.max(1.0, constraints.maxHeight - _pad.vertical - slack);
+            math.max(1.0, constraints.maxHeight - kPagePadding.vertical - slack);
         final key = Object.hashAll([
           width,
           height,
@@ -255,22 +258,30 @@ class _PagedBodyState extends State<PagedBody> {
         // Render at scale 1.0 to match [_paginate]'s TextPainter (which has no
         // scaler); the OS font scale would otherwise make text taller than
         // measured and overflow the page. The in-app "Aa" size is the control.
+        // The OS text-spacing overrides need clearing for the same reason: Text
+        // applies them, TextPainter here does not, so every page would overflow.
         return MediaQuery.withNoTextScaling(
-          child: PageView.builder(
-            controller: widget.controller,
-            scrollDirection: Axis.horizontal,
-            itemCount: _pages.length,
-            onPageChanged: widget.onPageChanged,
-            itemBuilder: (context, i) => Padding(
-              padding: _pad,
-              // Vertical scroll catches the rare few-px re-wrap overflow; the
-              // horizontal PageView still owns the swipe (opposite axis).
-              child: _ReaderPage(
-                key: ValueKey('page-$i-${_pages.length}'),
-                frags: _pages[i],
-                background: widget.settings.theme.bg,
-                ink: widget.settings.theme.ink,
-                buildFrag: _buildFrag,
+          child: MediaQuery.applyTextStyleOverrides(
+            lineHeightScaleFactorOverride: null,
+            letterSpacingOverride: null,
+            wordSpacingOverride: null,
+            paragraphSpacingOverride: null,
+            child: PageView.builder(
+              controller: widget.controller,
+              scrollDirection: Axis.horizontal,
+              itemCount: _pages.length,
+              onPageChanged: widget.onPageChanged,
+              itemBuilder: (context, i) => Padding(
+                padding: kPagePadding,
+                // Vertical scroll catches the rare few-px re-wrap overflow; the
+                // horizontal PageView still owns the swipe (opposite axis).
+                child: _ReaderPage(
+                  key: ValueKey('page-$i-${_pages.length}'),
+                  frags: _pages[i],
+                  background: widget.settings.theme.bg,
+                  ink: widget.settings.theme.ink,
+                  buildFrag: _buildFrag,
+                ),
               ),
             ),
           ),

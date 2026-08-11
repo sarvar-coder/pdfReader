@@ -81,6 +81,11 @@ class ReaderSettings {
     );
   }
 
+  /// The nominal height of one body line. Good enough for slack and spacing;
+  /// the engine can round a real line box up by a fraction of a pixel, so
+  /// anything that has to land *on* a line boundary measures instead.
+  double get lineHeight => fontSize * lineSpacing;
+
   /// The body text style for the current settings, in the theme's ink color.
   TextStyle bodyStyle() => typeface.textStyle(
         fontSize: fontSize,
