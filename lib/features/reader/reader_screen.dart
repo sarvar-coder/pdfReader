@@ -12,6 +12,7 @@ import 'package:ember/features/reader/widgets/selection_toolbar.dart';
 import 'package:ember/features/reader/widgets/settings_sheet.dart';
 import 'package:ember/models/book.dart';
 import 'package:ember/models/bookmark.dart';
+import 'package:ember/models/chapter.dart';
 import 'package:ember/models/highlight.dart';
 import 'package:ember/models/reading_session.dart';
 import 'package:ember/providers/bookmarks_provider.dart';
@@ -234,8 +235,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         .clamp(0, _pageCount - 1);
   }
 
-  /// Opens a sheet of the open book's bookmarks and highlights; tapping any of
-  /// them jumps to its page.
+  /// Opens a sheet of the open book's chapters, bookmarks and highlights;
+  /// tapping any of them jumps to its page.
   void _openContents(Book book) {
     final marks = ref
         .read(bookmarksProvider)
@@ -785,9 +786,9 @@ class _PageBody extends StatelessWidget {
   }
 }
 
-/// The "contents" bottom sheet: the open book's bookmarks and highlights,
-/// tappable to jump to their page.
-class _ContentsSheet extends StatelessWidget {
+/// The "contents" bottom sheet: the open book's chapters, bookmarks and
+/// highlights, tappable to jump to their page.
+class _ContentsSheet extends ConsumerWidget {
   const _ContentsSheet({
     required this.bookmarks,
     required this.highlights,
@@ -801,8 +802,11 @@ class _ContentsSheet extends StatelessWidget {
   final ValueChanged<int> onJump;
 
   @override
-  Widget build(BuildContext context) {
-    final empty = bookmarks.isEmpty && highlights.isEmpty;
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Chapters arrive asynchronously: a book imported before this feature has
+    // no sidecar and derives one on first read. An empty list until then.
+    final chapters = ref.watch(chaptersProvider).value ?? const <Chapter>[];
+    final empty = chapters.isEmpty && bookmarks.isEmpty && highlights.isEmpty;
     return Container(
       constraints: BoxConstraints(
         maxHeight: MediaQuery.sizeOf(context).height * 0.7,
@@ -850,6 +854,36 @@ class _ContentsSheet extends StatelessWidget {
               child: ListView(
                 shrinkWrap: true,
                 children: [
+                  if (chapters.isNotEmpty) ...[
+                    const _SheetSectionTitle('Chapters'),
+                    for (final chapter in chapters)
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        onTap: () => onJump(chapter.pageIndex),
+                        leading: const Icon(
+                          Icons.notes,
+                          color: AppColors.inkSoft,
+                          size: 20,
+                        ),
+                        title: Text(
+                          chapter.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.inter(
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.ink,
+                          ),
+                        ),
+                        trailing: Text(
+                          'p.${chapter.pageIndex + 1}',
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            color: AppColors.inkFaint,
+                          ),
+                        ),
+                      ),
+                  ],
                   if (highlights.isNotEmpty) ...[
                     const _SheetSectionTitle('Highlights'),
                     for (final h in highlights)
