@@ -2,9 +2,12 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:ember/features/reader/reflow.dart';
 import 'package:ember/models/book.dart';
+import 'package:ember/models/chapter.dart';
 import 'package:ember/providers/pdf_provider.dart';
 import 'package:ember/providers/storage_provider.dart';
+import 'package:ember/services/pdf_service.dart';
 
 /// The library: all books, backed by the Hive `books` box. Mutations write
 /// through to Hive and refresh the in-memory list so the UI rebuilds.
@@ -81,6 +84,7 @@ class LibraryNotifier extends Notifier<List<Book>> {
       try {
         final content = await service.extract(dest);
         await storage.writeTextCache(id, content.fullText);
+        await storage.writeToc(id, await buildChapters(service, dest, content));
       } catch (_) {/* first open will extract on demand */}
     }());
 
@@ -137,6 +141,34 @@ class LibraryNotifier extends Notifier<List<Book>> {
     await storage.books.delete(id);
     state = storage.books.values.toList(growable: false);
   }
+}
+
+/// A book's chapters: the PDF's own outline when it declares one, otherwise the
+/// headings the reflow classifier finds in the extracted text.
+///
+/// This lives in the provider layer, not in [PdfService], because the fallback
+/// needs `toBlocks` from the reader feature and `services/` sits below features.
+/// Pass [content] when the caller already has it; otherwise it is extracted
+/// only if the fallback is actually reached.
+Future<List<Chapter>> buildChapters(
+  PdfService service,
+  String pdfPath,
+  PdfContent? content,
+) async {
+  final outline = await service.outline(pdfPath);
+  if (outline.isNotEmpty) {
+    return [
+      for (final entry in outline)
+        Chapter(title: entry.title, pageIndex: entry.pageIndex),
+    ];
+  }
+  final text = content ?? await service.extract(pdfPath);
+  return [
+    for (var page = 0; page < text.pages.length; page++)
+      for (final block in toBlocks(text.pages[page]))
+        if (block.kind == BlockKind.title)
+          Chapter(title: block.text.trim(), pageIndex: page),
+  ];
 }
 
 /// Cover gradients (ARGB pairs) assigned to imported books by title hash, so each
