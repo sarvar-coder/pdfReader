@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:hive_flutter/hive_flutter.dart';
@@ -5,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'package:ember/models/book.dart';
 import 'package:ember/models/bookmark.dart';
+import 'package:ember/models/chapter.dart';
 import 'package:ember/models/highlight.dart';
 import 'package:ember/models/reading_session.dart';
 
@@ -66,13 +68,21 @@ class StorageService {
   bool coverExistsFor(String bookId) => File(coverPathFor(bookId)).existsSync();
 
   /// On-disk path for a book's cached extracted text.
-  String textPathFor(String bookId) => '$_booksDir/$bookId.txt';
+  ///
+  /// The `v2` names the extraction that produced it. Bumping the suffix is how
+  /// the cache is invalidated: text written by an older, worse extractor is
+  /// simply never looked up again, and the next open re-extracts.
+  String textPathFor(String bookId) => '$_booksDir/$bookId.v2.txt';
+
+  /// Text caches written by superseded extractors, swept when a book is
+  /// deleted so they do not outlive it.
+  List<String> _legacyTextPathsFor(String bookId) => ['$_booksDir/$bookId.txt'];
 
   /// Cached extracted text for a book, or `null` when no cache exists yet.
   /// An existing-but-empty file is a valid hit (a scanned/text-free PDF), so
   /// the miss check is file existence, not string emptiness.
-  // ponytail: cache keyed by bookId, never invalidated — PDFs are copied once
-  // at import and never rewritten.
+  // ponytail: keyed by bookId, never invalidated within a version — PDFs are
+  // copied once at import and never rewritten.
   Future<String?> readTextCache(String bookId) async {
     final file = File(textPathFor(bookId));
     if (!file.existsSync()) return null;
@@ -82,6 +92,31 @@ class StorageService {
   /// Persists extracted text so future opens skip re-parsing the PDF.
   Future<void> writeTextCache(String bookId, String text) =>
       File(textPathFor(bookId)).writeAsString(text);
+
+  /// On-disk path for a book's chapter list (its table of contents).
+  String tocPathFor(String bookId) => '$_booksDir/$bookId.toc.json';
+
+  /// A book's chapters, or `null` when none have been derived yet. As with the
+  /// text cache, an existing-but-empty list is a valid hit — plenty of PDFs
+  /// declare no outline and have no detectable headings.
+  Future<List<Chapter>?> readToc(String bookId) async {
+    final file = File(tocPathFor(bookId));
+    if (!file.existsSync()) return null;
+    try {
+      final json = jsonDecode(await file.readAsString()) as List<dynamic>;
+      return [
+        for (final entry in json)
+          Chapter.fromJson(entry as Map<String, dynamic>),
+      ];
+    } catch (_) {
+      return null; // corrupt sidecar — treat as a miss and rebuild
+    }
+  }
+
+  /// Persists a book's chapters so future opens skip re-parsing the PDF.
+  Future<void> writeToc(String bookId, List<Chapter> chapters) => File(
+        tocPathFor(bookId),
+      ).writeAsString(jsonEncode([for (final c in chapters) c.toJson()]));
 
   /// On-disk path for a book's notebook (the reader's own written notes).
   String notePathFor(String bookId) => '$_booksDir/$bookId.note.txt';
@@ -115,12 +150,14 @@ class StorageService {
     return dest;
   }
 
-  /// Deletes every file derived from a book's id — PDF, text cache, cover and
-  /// notebook (used when removing a book).
+  /// Deletes every file derived from a book's id — PDF, text caches (current
+  /// and superseded), chapters, cover and notebook (used when removing a book).
   Future<void> deletePdfFor(String bookId) async {
     for (final file in [
       File(pdfPathFor(bookId)),
       File(textPathFor(bookId)),
+      for (final path in _legacyTextPathsFor(bookId)) File(path),
+      File(tocPathFor(bookId)),
       File(coverPathFor(bookId)),
       File(notePathFor(bookId)),
     ]) {
