@@ -2,7 +2,9 @@
 //   flutter test test/gen_icon_test.dart
 // It paints an ember on the warm paper background and writes PNGs into
 // assets/icon/. Not a real test — just a convenient way to rasterize with the
-// Flutter engine (no ImageMagick needed).
+// Flutter engine (no ImageMagick needed). After running it:
+//   dart run flutter_launcher_icons        # app icons
+//   dart run flutter_native_splash:create  # splash screen
 import 'dart:io';
 import 'dart:ui' as ui;
 

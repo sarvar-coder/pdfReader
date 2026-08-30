@@ -48,6 +48,8 @@ dependencies:
   receive_sharing_intent: 1.8.1
 
 dev_dependencies:
+  # No build_runner / hive_generator: Hive adapters are hand-written because
+  # hive_generator conflicts with the analyzer version Riverpod 3 pulls in.
   flutter_test:
     sdk: flutter
 
