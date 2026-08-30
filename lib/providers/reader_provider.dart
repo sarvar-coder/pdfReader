@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:ember/features/reader/reader_settings.dart';
 import 'package:ember/models/book.dart';
+import 'package:ember/models/chapter.dart';
 import 'package:ember/providers/library_provider.dart';
 import 'package:ember/providers/pdf_provider.dart';
 import 'package:ember/providers/storage_provider.dart';
@@ -76,6 +77,25 @@ final readerContentProvider = FutureProvider.autoDispose<PdfContent?>((ref) asyn
   final content = await ref.watch(pdfServiceProvider).extract(path);
   await storage.writeTextCache(book.id, content.fullText);
   return content;
+});
+
+/// The open book's chapters, for the contents sheet.
+///
+/// Backfills on first read: a book imported before chapters existed has no
+/// sidecar, so it is derived and written once, exactly as the text cache does
+/// on a miss.
+final chaptersProvider = FutureProvider.autoDispose<List<Chapter>>((ref) async {
+  final path = ref.watch(currentPdfPathProvider);
+  if (path == null) return const [];
+  final book = ref.read(currentBookProvider)!; // path != null ⇒ book exists
+  final storage = ref.watch(storageServiceProvider);
+
+  final cached = await storage.readToc(book.id);
+  if (cached != null) return cached;
+  final chapters =
+      await buildChapters(ref.watch(pdfServiceProvider), path, null);
+  await storage.writeToc(book.id, chapters);
+  return chapters;
 });
 
 /// Reader settings persisted in the `prefs` Hive box, so the chosen theme, font
