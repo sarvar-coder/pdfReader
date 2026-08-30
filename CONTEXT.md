@@ -32,6 +32,11 @@ How far through a Book the reader has got, as a proportion of its text. The cano
 position, because it survives a style change.
 _Avoid_: Page number, offset, progress
 
+**Chapter**:
+A named division of a Book, taken from the PDF's own outline or, failing that, from the headings
+detected in its text. Used to jump around a Book, not to break it up — Pages ignore Chapters.
+_Avoid_: Section, heading, toc, contents
+
 **Highlight**:
 A passage the reader marked, stored as the quoted text itself.
 _Avoid_: Annotation, selection, marker

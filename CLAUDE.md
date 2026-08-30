@@ -13,10 +13,11 @@ Domain vocabulary: `CONTEXT.md`.
 ## Tests
 
 ```bash
-flutter test test/reflow_test.dart test/note_page_test.dart test/note_screen_test.dart
+flutter test test/reflow_test.dart test/note_page_test.dart test/note_screen_test.dart \
+  test/pdf_text_test.dart
 ```
 
-Always name the three files. Bare `flutter test` also runs `test/gen_icon_test.dart`, which is a
+Always name the four files. Bare `flutter test` also runs `test/gen_icon_test.dart`, which is a
 rasterizer rather than a test — it rewrites `assets/icon/*.png`.
 
 ## Architecture
