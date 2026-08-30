@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:syncfusion_flutter_pdf/pdf.dart';
@@ -12,15 +13,37 @@ class PdfContent {
 
   final int pageCount;
 
-  /// Plain text per page; `pages.length == pageCount`.
+  /// Reflow-ready text per page: blank-line separated paragraphs, holding the
+  /// paragraphs that *begin* on that page. `pages.length == pageCount`.
   final List<String> pages;
 
   /// All pages joined, for the reflow reader.
   String get fullText => pages.join('\n\n');
 }
 
+/// One extracted line, reduced to what [reflowLines] needs. Deliberately a
+/// plain record rather than syncfusion's `TextLine`, whose constructor is
+/// private — the normalization can then be unit-tested without a real PDF.
+typedef PdfLine = ({
+  String text,
+  double top,
+  double left,
+  double right,
+  double fontSize,
+  int pageIndex,
+});
+
+/// A chapter as the PDF itself declares it, before it becomes a `Chapter`.
+typedef OutlineEntry = ({String title, int pageIndex});
+
 /// Reads PDFs from disk using `syncfusion_flutter_pdf`. The reader reflows the
 /// extracted text, so layout/images are dropped (acceptable for prose).
+///
+/// Text comes from `extractTextLines`, never `extractText`: the flat extractor
+/// glues runs that the PDF separated by position rather than by a space glyph
+/// ("alreadyseen,thereare…" — 60 such runs on a sample of design-patterns-en.pdf
+/// against 2 for the line extractor). Lines also carry the geometry
+/// [reflowLines] needs to rebuild paragraphs and drop running heads.
 ///
 /// Parsing is CPU-bound and runs in a background isolate ([Isolate.run]) so it
 /// never blocks the UI thread — syncfusion is pure Dart, so it works off the
@@ -45,12 +68,38 @@ class PdfService {
             PdfDocument(inputBytes: File(path).readAsBytesSync());
         try {
           final count = document.pages.count;
-          final extractor = PdfTextExtractor(document);
-          final pages = <String>[
-            for (var i = 0; i < count; i++)
-              extractor.extractText(startPageIndex: i, endPageIndex: i),
+          final lines = <PdfLine>[
+            for (final line in PdfTextExtractor(document).extractTextLines())
+              (
+                text: line.text,
+                top: line.bounds.top,
+                left: line.bounds.left,
+                right: line.bounds.right,
+                fontSize: line.fontSize,
+                pageIndex: line.pageIndex,
+              ),
           ];
-          return PdfContent(pageCount: count, pages: pages);
+          return PdfContent(
+            pageCount: count,
+            pages: reflowLines(lines, count),
+          );
+        } finally {
+          document.dispose();
+        }
+      });
+
+  /// The PDF's own table of contents, flattened depth-first, or an empty list
+  /// when the file declares none. Nesting is dropped — the reader shows one
+  /// flat chapter list.
+  Future<List<OutlineEntry>> outline(String path) => Isolate.run(() {
+        final document =
+            PdfDocument(inputBytes: File(path).readAsBytesSync());
+        try {
+          final entries = <OutlineEntry>[];
+          _collectOutline(document, document.bookmarks, entries);
+          return entries;
+        } catch (_) {
+          return const <OutlineEntry>[];
         } finally {
           document.dispose();
         }
@@ -84,4 +133,329 @@ class PdfService {
       await doc.dispose();
     }
   }
+}
+
+/// Walks the outline tree depth-first, keeping every entry that resolves to a
+/// page. A malformed destination skips that entry rather than failing the book.
+void _collectOutline(
+  PdfDocument document,
+  PdfBookmarkBase node,
+  List<OutlineEntry> into,
+) {
+  for (var i = 0; i < node.count; i++) {
+    final bookmark = node[i];
+    try {
+      final page = bookmark.destination?.page;
+      final title = bookmark.title.trim();
+      if (page != null && title.isNotEmpty) {
+        final index = document.pages.indexOf(page);
+        if (index >= 0) into.add((title: title, pageIndex: index));
+      }
+    } catch (_) {/* unresolvable destination — skip this entry */}
+    _collectOutline(document, bookmark, into);
+  }
+}
+
+/// Opens a list item, whose marker hangs left of the text that follows it.
+final RegExp _kListMarker = RegExp(r'^([•▪◦·\-–—*]|\d{1,3}[.)]|[a-z][.)])\s');
+
+/// Lines closer together than this many pitches belong to the same block — a
+/// running head and the watermark printed beside it, for instance.
+const double _blockPitches = 0.5;
+
+/// A block at the top or bottom of a page must stand this many line pitches
+/// clear of the rest of the page to be a running-head candidate.
+const double _isolationPitches = 1.5;
+
+/// A y position must carry such a candidate on at least this share of pages
+/// before every line at that position is dropped.
+const double _repeatShare = 0.4;
+
+/// Turns extracted [lines] into reflow-ready page text: running heads and page
+/// numbers dropped, wrapped lines re-joined into paragraphs, paragraphs
+/// separated by a blank line (the shape `toBlocks` groups on).
+///
+/// Returns [pageCount] entries; `result[i]` holds the paragraphs that *begin*
+/// on page `i`, so a paragraph spanning a page break stays whole and is
+/// attributed to the page it started on.
+///
+/// Pure by design (no PDF types) so it is unit-testable.
+// ponytail: assumes a single text column in reading order — a two-column PDF
+// will interleave. Detect columns by clustering `left` if that ever matters.
+List<String> reflowLines(List<PdfLine> lines, int pageCount) {
+  final pages = List.generate(math.max(pageCount, 0), (_) => <String>[]);
+  if (lines.isEmpty) return [for (final p in pages) p.join('\n\n')];
+
+  final ordered = [...lines]..sort((a, b) {
+      final page = a.pageIndex.compareTo(b.pageIndex);
+      if (page != 0) return page;
+      final top = a.top.compareTo(b.top);
+      return top != 0 ? top : a.left.compareTo(b.left);
+    });
+
+  final rows = _mergeRows(ordered);
+  final pitch = _pitchOf(rows);
+  // Per page as well as overall: a page of code listings leads much tighter
+  // than a page of prose, and one median for the whole book makes ordinary
+  // prose steps look like paragraph breaks.
+  final pitchByPage = _pitchPerPage(rows, pitch);
+  final kept = _withoutRunningHeads(rows, pitch);
+  if (kept.isEmpty) return [for (final p in pages) p.join('\n\n')];
+
+  // The measure: where full lines begin and end. Percentiles rather than the
+  // extremes (one wide figure would define the column) and rather than the
+  // median (half a technical book's lines are short code fragments, which drags
+  // a median measure far inside the real one).
+  final colLeft = _percentile([for (final l in kept) l.left], 0.15);
+  final colRight = _percentile([for (final l in kept) l.right], 0.85);
+
+  var buffer = StringBuffer();
+  var bufferPage = kept.first.pageIndex;
+  PdfLine? previous;
+  double? lastStep;
+
+  void flush() {
+    final text = buffer.toString().trim();
+    if (text.isNotEmpty && bufferPage < pages.length) {
+      pages[bufferPage].add(text);
+    }
+    buffer = StringBuffer();
+  }
+
+  for (final line in kept) {
+    // Tabs and runs of spaces are layout, not language: some books set their
+    // measure with tabs and the extractor hands them straight back.
+    final text = line.text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (text.isEmpty) continue;
+    final samePage = previous != null && previous.pageIndex == line.pageIndex;
+    final step = samePage ? line.top - previous.top : null;
+    if (previous != null &&
+        _startsParagraph(
+          line,
+          previous,
+          step,
+          lastStep ?? pitchByPage[line.pageIndex] ?? pitch,
+          colLeft,
+          colRight,
+        )) {
+      flush();
+    }
+    if (buffer.isEmpty) bufferPage = line.pageIndex;
+    buffer.write(buffer.isEmpty ? text : ' $text');
+    previous = line;
+    lastStep = step != null && step > 0.5 ? step : lastStep;
+  }
+  flush();
+
+  return [for (final p in pages) p.join('\n\n')];
+}
+
+/// Merges lines that share a baseline into one row, ordered left to right.
+///
+/// An inline code span or a differently-styled word comes back as its own
+/// `TextLine`, nudged a point or two off the baseline of the sentence holding
+/// it. Sorted by `top` alone it lands *after* that sentence, which is how
+/// "the command was designed" ends up followed by a stray "touch".
+List<PdfLine> _mergeRows(List<PdfLine> ordered) {
+  final rows = <PdfLine>[];
+  var i = 0;
+  while (i < ordered.length) {
+    final first = ordered[i];
+    final parts = <PdfLine>[first];
+    var j = i;
+    while (j + 1 < ordered.length &&
+        ordered[j + 1].pageIndex == first.pageIndex &&
+        (ordered[j + 1].top - first.top).abs() <
+            math.max(first.fontSize, ordered[j + 1].fontSize) * 0.8) {
+      j++;
+      parts.add(ordered[j]);
+    }
+    if (parts.length == 1) {
+      rows.add(first);
+    } else {
+      parts.sort((a, b) => a.left.compareTo(b.left));
+      // The widest part sets the row's type size: a body line keeps body size
+      // even when it holds a small code span.
+      final widest = parts.reduce(
+        (a, b) => (b.right - b.left) > (a.right - a.left) ? b : a,
+      );
+      rows.add((
+        text: _joinParts(parts),
+        top: parts.map((p) => p.top).reduce(math.min),
+        left: parts.map((p) => p.left).reduce(math.min),
+        right: parts.map((p) => p.right).reduce(math.max),
+        fontSize: widest.fontSize,
+        pageIndex: first.pageIndex,
+      ));
+    }
+    i = j + 1;
+  }
+  return rows;
+}
+
+/// Joins one row's parts left to right, inserting a space only where the parts
+/// stand apart. A display line set with wide letter tracking arrives as several
+/// touching parts — joined unconditionally it reads "CA T ALOG OF".
+String _joinParts(List<PdfLine> parts) {
+  final buffer = StringBuffer();
+  PdfLine? previous;
+  for (final part in parts) {
+    final text = part.text.trim();
+    if (text.isEmpty) continue;
+    if (previous != null && part.left - previous.right > part.fontSize * 0.25) {
+      buffer.write(' ');
+    }
+    buffer.write(text);
+    previous = part;
+  }
+  return buffer.toString();
+}
+
+double _median(List<double> values) => _percentile(values, 0.5);
+
+double _percentile(List<double> values, double fraction) {
+  final sorted = [...values]..sort();
+  final index = (sorted.length * fraction).floor().clamp(0, sorted.length - 1);
+  return sorted[index];
+}
+
+/// The document's usual line-to-line step, as the median of same-page steps.
+/// Falls back to the median font size when a document has too few steps.
+double _pitchOf(List<PdfLine> ordered) {
+  final steps = <double>[];
+  for (var i = 1; i < ordered.length; i++) {
+    if (ordered[i].pageIndex != ordered[i - 1].pageIndex) continue;
+    final step = ordered[i].top - ordered[i - 1].top;
+    if (step > 0.5) steps.add(step);
+  }
+  if (steps.isEmpty) {
+    final sizes = [for (final l in ordered) l.fontSize]..sort();
+    final median = sizes.isEmpty ? 12.0 : sizes[sizes.length ~/ 2];
+    return median * 1.2;
+  }
+  steps.sort();
+  return steps[steps.length ~/ 2];
+}
+
+/// The usual line step of each page, falling back to [fallback] on a page with
+/// too few lines to say.
+Map<int, double> _pitchPerPage(List<PdfLine> rows, double fallback) {
+  final steps = <int, List<double>>{};
+  for (var i = 1; i < rows.length; i++) {
+    if (rows[i].pageIndex != rows[i - 1].pageIndex) continue;
+    final step = rows[i].top - rows[i - 1].top;
+    if (step > 0.5) steps.putIfAbsent(rows[i].pageIndex, () => []).add(step);
+  }
+  return {
+    for (final entry in steps.entries)
+      entry.key: entry.value.length < 3 ? fallback : _median(entry.value),
+  };
+}
+
+/// Drops running heads, folios and page watermarks: the top or bottom block of
+/// a page, standing clear of the rest of it, at a y position that repeats
+/// across many pages.
+///
+/// All three conditions are required, and each rules out a different innocent.
+/// A chapter title also stands clear at the top of its page — but only on its
+/// own page, so it fails the repetition test. The first line of ordinary body
+/// text also opens a page — but it is one pitch from the second line, so it
+/// fails the isolation test. Grouping into blocks first is what lets a running
+/// head printed beside a watermark still count as isolated.
+List<PdfLine> _withoutRunningHeads(List<PdfLine> ordered, double pitch) {
+  // y (rounded into 3pt buckets) -> the pages carrying a candidate there.
+  final seen = <int, Set<int>>{};
+  final pageStarts = <int, int>{};
+  for (var i = 0; i < ordered.length; i++) {
+    pageStarts.putIfAbsent(ordered[i].pageIndex, () => i);
+  }
+
+  for (final entry in pageStarts.entries) {
+    final start = entry.value;
+    var end = start;
+    while (end + 1 < ordered.length &&
+        ordered[end + 1].pageIndex == entry.key) {
+      end++;
+    }
+    if (end == start) continue; // a one-line page tells us nothing
+
+    // Walk the first block down from the top and the last block up from the
+    // bottom, then check each stands clear of what remains.
+    var firstEnd = start;
+    while (firstEnd + 1 <= end &&
+        ordered[firstEnd + 1].top - ordered[firstEnd].top < pitch * _blockPitches) {
+      firstEnd++;
+    }
+    var lastStart = end;
+    while (lastStart - 1 >= start &&
+        ordered[lastStart].top - ordered[lastStart - 1].top < pitch * _blockPitches) {
+      lastStart--;
+    }
+
+    void mark(int from, int to) {
+      for (var i = from; i <= to; i++) {
+        seen
+            .putIfAbsent((ordered[i].top / 3).round(), () => <int>{})
+            .add(ordered[i].pageIndex);
+      }
+    }
+
+    if (firstEnd < end &&
+        ordered[firstEnd + 1].top - ordered[firstEnd].top >
+            pitch * _isolationPitches) {
+      mark(start, firstEnd);
+    }
+    if (lastStart > start &&
+        ordered[lastStart].top - ordered[lastStart - 1].top >
+            pitch * _isolationPitches) {
+      mark(lastStart, end);
+    }
+  }
+
+  final pagesSeen = {for (final l in ordered) l.pageIndex}.length;
+  final threshold = math.max(3, (pagesSeen * _repeatShare).round());
+  final dropped = {
+    for (final entry in seen.entries)
+      if (entry.value.length >= threshold) entry.key,
+  };
+  if (dropped.isEmpty) return ordered;
+  return [
+    for (final l in ordered)
+      if (!dropped.contains((l.top / 3).round())) l,
+  ];
+}
+
+/// Whether [line] opens a new paragraph rather than continuing [previous].
+///
+/// [step] is the vertical distance between the two (null across a page break),
+/// and [leading] the step the text was running at just before — comparing
+/// against the *local* leading rather than a book-wide average is what keeps a
+/// chapter of tightly-led code listings from redefining what a paragraph break
+/// looks like in the prose around it.
+bool _startsParagraph(
+  PdfLine line,
+  PdfLine previous,
+  double? step,
+  double leading,
+  double colLeft,
+  double colRight,
+) {
+  // A change of type size separates a heading from the paragraph before it,
+  // and is the only signal that survives a page break — no vertical step
+  // exists to measure across one, and a paragraph may legitimately continue.
+  if ((line.fontSize - previous.fontSize).abs() > 0.5) return true;
+  if (step != null && step > leading * 1.5) return true;
+  // A first-line indent, measured against the line above rather than the page:
+  // a book with a second, indented margin for asides would otherwise read as
+  // one indent per line. A list item is the exception — its marker hangs to the
+  // left, so every line after the first looks indented.
+  if (line.left > previous.left + line.fontSize * 0.6 &&
+      !_kListMarker.hasMatch(previous.text.trimLeft())) {
+    return true;
+  }
+  // Proportional to the measure, not to the type size: a ragged-right book's
+  // lines all stop a little short, so only a line giving up a real slice of the
+  // measure is a paragraph's last one.
+  if (previous.right < colRight - (colRight - colLeft) * 0.15) return true;
+  return false;
 }
