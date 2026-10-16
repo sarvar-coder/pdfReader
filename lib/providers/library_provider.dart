@@ -18,10 +18,13 @@ class LibraryNotifier extends Notifier<List<Book>> {
   List<Book> build() {
     final box = ref.watch(storageServiceProvider).books;
     final books = box.values.toList(growable: false);
-    // One-time backfill of covers for books imported before covers existed.
+    // One-time backfill for books imported before covers and title cleanup.
     if (!_coversChecked) {
       _coversChecked = true;
-      Future(() => _ensureCovers());
+      Future(() async {
+        await _retitleFileNames();
+        await _ensureCovers();
+      });
     }
     return books;
   }
@@ -49,6 +52,44 @@ class LibraryNotifier extends Notifier<List<Book>> {
     }
   }
 
+  /// Re-titles books still named after their file ("Maybe_You_Shou…"), from
+  /// the PDF's metadata when it has a title, else from the cleaned file name.
+  /// Only titles shaped like a file name (underscores, or one dotted/dashed
+  /// token) qualify, so a book is retitled once and real titles never are.
+  Future<void> _retitleFileNames() async {
+    final storage = ref.read(storageServiceProvider);
+    final service = ref.read(pdfServiceProvider);
+    final fileName = RegExp(r'_|^\S+[-.]\S+$');
+    var changed = false;
+    for (final book in storage.books.values.toList()) {
+      if (!fileName.hasMatch(book.title)) continue;
+      String? title;
+      String? author;
+      try {
+        final info = await service.info(storage.pdfPathFor(book.id));
+        title = info.title;
+        author = info.author;
+      } catch (_) {
+        /* missing or unreadable PDF — the cleaned name will do */
+      }
+      // Re-read after the parse: the reader may have saved progress, or the
+      // book been removed, while it ran.
+      final fresh = storage.books.get(book.id);
+      if (fresh == null) continue;
+      await storage.books.put(
+        book.id,
+        fresh.copyWith(
+          title: title ?? cleanTitle(fresh.title),
+          author: fresh.author == 'Unknown' ? author : null,
+        ),
+      );
+      changed = true;
+    }
+    if (changed) {
+      state = storage.books.values.toList(growable: false);
+    }
+  }
+
   /// Adds (or replaces) a book and persists it.
   Future<void> upsert(Book book) async {
     await ref.read(storageServiceProvider).books.put(book.id, book);
@@ -56,7 +97,8 @@ class LibraryNotifier extends Notifier<List<Book>> {
   }
 
   /// Imports a picked PDF: copies the file into app storage and creates a new
-  /// [Book] record. Page count stays 0 until the PDF is parsed (step 3.4).
+  /// [Book] record. [title] is the file name stem; the PDF's own metadata title
+  /// wins when it has one, else the stem is cleaned up.
   Future<Book> importPdf({
     required String sourcePath,
     required String title,
@@ -66,13 +108,17 @@ class LibraryNotifier extends Notifier<List<Book>> {
     final id = 'pdf-${DateTime.now().microsecondsSinceEpoch}';
     final dest = await storage.importPdfFile(sourcePath, id);
 
-    // Best-effort page count; a parse failure still adds the book (pages = 0).
+    // Best-effort metadata; a parse failure still adds the book (pages = 0).
     final service = ref.read(pdfServiceProvider);
     var pageCount = 0;
+    var bookTitle = cleanTitle(title);
     try {
-      pageCount = await service.pageCount(dest);
+      final info = await service.info(dest);
+      pageCount = info.pageCount;
+      bookTitle = info.title ?? bookTitle;
+      if (author == 'Unknown') author = info.author ?? author;
     } catch (_) {
-      pageCount = 0;
+      /* keep the defaults */
     }
 
     // Prefetch the full text off the UI thread and cache it, so the first open
@@ -88,10 +134,11 @@ class LibraryNotifier extends Notifier<List<Book>> {
       } catch (_) {/* first open will extract on demand */}
     }());
 
-    final palette = _coverGradients[title.hashCode.abs() % _coverGradients.length];
+    final palette =
+        _coverGradients[bookTitle.hashCode.abs() % _coverGradients.length];
     final book = Book(
       id: id,
-      title: title,
+      title: bookTitle,
       author: author,
       currentPage: 0,
       totalPages: pageCount,

@@ -62,21 +62,27 @@ class StorageService {
   bool pdfExistsFor(String bookId) => File(pdfPathFor(bookId)).existsSync();
 
   /// On-disk path for a book's rendered cover thumbnail (PDF page 1 as PNG).
-  String coverPathFor(String bookId) => '$_booksDir/$bookId.png';
+  /// Versioned like [textPathFor]: `v2` replaced covers rendered cropped.
+  String coverPathFor(String bookId) => '$_booksDir/$bookId.v2.png';
 
   /// Whether a book's cover thumbnail has been rendered to disk yet.
   bool coverExistsFor(String bookId) => File(coverPathFor(bookId)).existsSync();
 
   /// On-disk path for a book's cached extracted text.
   ///
-  /// The `v2` names the extraction that produced it. Bumping the suffix is how
+  /// The `v3` names the extraction that produced it. Bumping the suffix is how
   /// the cache is invalidated: text written by an older, worse extractor is
   /// simply never looked up again, and the next open re-extracts.
-  String textPathFor(String bookId) => '$_booksDir/$bookId.v2.txt';
+  String textPathFor(String bookId) => '$_booksDir/$bookId.v3.txt';
 
-  /// Text caches written by superseded extractors, swept when a book is
-  /// deleted so they do not outlive it.
-  List<String> _legacyTextPathsFor(String bookId) => ['$_booksDir/$bookId.txt'];
+  /// Files written by superseded versions (text, chapters, covers), swept when
+  /// a book is deleted so they do not outlive it.
+  List<String> _legacyPathsFor(String bookId) => [
+        '$_booksDir/$bookId.txt',
+        '$_booksDir/$bookId.v2.txt',
+        '$_booksDir/$bookId.toc.json',
+        '$_booksDir/$bookId.png',
+      ];
 
   /// Cached extracted text for a book, or `null` when no cache exists yet.
   /// An existing-but-empty file is a valid hit (a scanned/text-free PDF), so
@@ -94,7 +100,8 @@ class StorageService {
       File(textPathFor(bookId)).writeAsString(text);
 
   /// On-disk path for a book's chapter list (its table of contents).
-  String tocPathFor(String bookId) => '$_booksDir/$bookId.toc.json';
+  /// Versioned with [textPathFor]: heading-derived chapters change with it.
+  String tocPathFor(String bookId) => '$_booksDir/$bookId.v3.toc.json';
 
   /// A book's chapters, or `null` when none have been derived yet. As with the
   /// text cache, an existing-but-empty list is a valid hit — plenty of PDFs
@@ -156,7 +163,7 @@ class StorageService {
     for (final file in [
       File(pdfPathFor(bookId)),
       File(textPathFor(bookId)),
-      for (final path in _legacyTextPathsFor(bookId)) File(path),
+      for (final path in _legacyPathsFor(bookId)) File(path),
       File(tocPathFor(bookId)),
       File(coverPathFor(bookId)),
       File(notePathFor(bookId)),

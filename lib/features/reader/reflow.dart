@@ -183,8 +183,71 @@ List<Block> toBlocks(String text) {
   }
 
   if (result.isEmpty) result.add(Block(BlockKind.body, text));
-  return result;
+  return _foldDisplayTitles(result);
 }
+/// A display title set in mixed sizes ("WHAT the / FEELINGS / you most /
+/// SUPPRESS") is extracted one size per line, so it arrives as headings
+/// alternating with short body fragments. Folds each such run into a single
+/// title. A leading chapter label ("7", "Chapter 3") keeps its own block.
+///
+/// Only a run with at least one word fragment bridging two headings is folded:
+/// plain consecutive headings ("Chapter 1" then "Getting Started") stay apart.
+List<Block> _foldDisplayTitles(List<Block> blocks) {
+  bool isHeading(int i) => blocks[i].kind != BlockKind.body;
+  bool isFragment(int i) {
+    final t = blocks[i].text.trim();
+    // Plain words only: a code line or a figure label between two headings
+    // ("}", "9", "x = 1") is not part of a display title.
+    return blocks[i].kind == BlockKind.body &&
+        t.length <= 40 &&
+        t.contains(' ') && // one word ("Really") is a line of dialogue
+        RegExp(r"^\p{L}[\p{L} ’'-]*$", unicode: true).hasMatch(t);
+  }
+
+  final out = <Block>[];
+  var i = 0;
+  while (i < blocks.length) {
+    if (!isHeading(i)) {
+      out.add(blocks[i++]);
+      continue;
+    }
+    var end = i;
+    var bridged = false;
+    while (true) {
+      if (end + 1 < blocks.length && isHeading(end + 1)) {
+        end++;
+      } else if (end + 2 < blocks.length &&
+          isFragment(end + 1) &&
+          isHeading(end + 2)) {
+        end += 2;
+        bridged = true;
+      } else {
+        break;
+      }
+    }
+    var start = i;
+    final label = blocks[i].text.trim();
+    if (bridged &&
+        (_kRomanOnly.hasMatch(label) ||
+            _kNumberOnly.hasMatch(label) ||
+            (_kTitleKeyword.hasMatch(label) && label.length <= 30))) {
+      out.add(blocks[start++]);
+    }
+    if (bridged && end > start) {
+      out.add(
+        Block(
+          BlockKind.title,
+          [for (var k = start; k <= end; k++) blocks[k].text.trim()].join(' '),
+        ),
+      );
+    } else {
+      out.addAll(blocks.sublist(start, end + 1));
+    }
+    i = end + 1;
+  }
+  return out;
+}
+
 /// The horizontally-swiped reading view. Reflows [body] into screen-sized pages
 /// (one per swipe, no inner scroll) by measuring the text against the available
 /// box, then re-measures whenever the box or the reader [settings] change.

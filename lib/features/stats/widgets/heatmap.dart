@@ -50,6 +50,7 @@ class Heatmap extends StatelessWidget {
           const SizedBox(height: 14),
           GridView.builder(
             shrinkWrap: true,
+            padding: EdgeInsets.zero, // see StatGrid
             physics: const NeverScrollableScrollPhysics(),
             itemCount: levels.length,
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(

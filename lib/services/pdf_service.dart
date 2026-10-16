@@ -36,6 +36,10 @@ typedef PdfLine = ({
 /// A chapter as the PDF itself declares it, before it becomes a `Chapter`.
 typedef OutlineEntry = ({String title, int pageIndex});
 
+/// What import needs from a PDF: its page count, and its declared title and
+/// author when the metadata holds something usable (null otherwise).
+typedef PdfInfo = ({int pageCount, String? title, String? author});
+
 /// Reads PDFs from disk using `syncfusion_flutter_pdf`. The reader reflows the
 /// extracted text, so layout/images are dropped (acceptable for prose).
 ///
@@ -51,12 +55,17 @@ typedef OutlineEntry = ({String title, int pageIndex});
 class PdfService {
   const PdfService();
 
-  /// Page count only — parsed off the main isolate at import time.
-  Future<int> pageCount(String path) => Isolate.run(() {
+  /// Page count and metadata — parsed off the main isolate at import time.
+  Future<PdfInfo> info(String path) => Isolate.run(() {
         final document =
             PdfDocument(inputBytes: File(path).readAsBytesSync());
         try {
-          return document.pages.count;
+          final meta = document.documentInformation;
+          return (
+            pageCount: document.pages.count,
+            title: _usableMeta(meta.title),
+            author: _usableMeta(meta.author),
+          );
         } finally {
           document.dispose();
         }
@@ -117,7 +126,14 @@ class PdfService {
     try {
       final page = doc.pages.first;
       final height = (_coverWidth * page.height / page.width).round();
-      final rendered = await page.render(width: _coverWidth, height: height);
+      // fullWidth/fullHeight scale the whole page into the bitmap; without them
+      // pdfrx renders at 72 dpi and crops a width x height window from it.
+      final rendered = await page.render(
+        width: _coverWidth,
+        height: height,
+        fullWidth: _coverWidth.toDouble(),
+        fullHeight: height.toDouble(),
+      );
       if (rendered == null) return;
       ui.Image? image;
       try {
@@ -133,6 +149,52 @@ class PdfService {
       await doc.dispose();
     }
   }
+}
+
+/// A metadata field worth showing, or null for the empty, the generic and the
+/// leaked file names ("Microsoft Word - draft3.docx") producers leave behind.
+String? _usableMeta(String raw) {
+  final value = raw.trim();
+  if (value.length < 2) return null;
+  if (RegExp(
+    r'\.(pdf|docx?|indd|tex)$|^microsoft word|^untitled$',
+    caseSensitive: false,
+  ).hasMatch(value)) {
+    return null;
+  }
+  return value;
+}
+
+/// A readable title from a file name stem, for PDFs whose metadata names none:
+/// "31_10_2020_084952101_Essays_That_Will_Change" -> "Essays That Will Change".
+///
+/// Underscores always separate words; hyphens and dots only when the file name
+/// has no spaces, since "Node.js" or "Data-Intensive" in a spaced name are real.
+/// Pure digit runs (dates, upload ids), version tags and download-site tags
+/// are dropped.
+String cleanTitle(String stem) {
+  var name = stem.replaceAll('_', ' ').trim();
+  if (!stem.contains(' ')) name = name.replaceAll(RegExp(r'[-.]'), ' ');
+  final words = [
+    for (final word in name.split(RegExp(r'\s+')))
+      if (!RegExp(
+        r'^(\d{5,}|v\d+|pdf|compress|z-?lib\.?org|oceanofpdf\.com)$',
+        caseSensitive: false,
+      ).hasMatch(word))
+        word,
+  ];
+  // Short digit runs only go as a leading date ("31 10 2020 Essays"): one
+  // leading number is content ("10 Rules for Life", "1984").
+  final isDigits = RegExp(r'^\d+$');
+  if (words.length > 2 &&
+      isDigits.hasMatch(words[0]) &&
+      isDigits.hasMatch(words[1])) {
+    while (words.length > 1 && isDigits.hasMatch(words.first)) {
+      words.removeAt(0);
+    }
+  }
+  final title = words.join(' ').replaceAll(RegExp(r'^[-–\s]+|[-–\s]+$'), '');
+  return title.isEmpty ? stem : title;
 }
 
 /// Walks the outline tree depth-first, keeping every entry that resolves to a
@@ -156,8 +218,69 @@ void _collectOutline(
   }
 }
 
+/// A lone capital the extractor split off its word at a kerning pair: "Y ou",
+/// "T able". The producer pulls the pair together with a TJ offset, and
+/// syncfusion reads the offset as a word gap. Only kerning pairs qualify (the
+/// capital is one of [TVWYFP], the next letter one they kern with), and a key
+/// combo or type parameter ("Shift+F on", "<T extends") is left alone.
+final RegExp _kSplitCapital = RegExp(
+  r"(?<![\p{L}\p{N}’'+\-<(])([TVWYFP]) ([aeoruy]\p{Ll}+)",
+  unicode: true,
+);
+
+/// Words that follow a lone capital on their own ("P and Q", "the Y axis"),
+/// so a split before one of them is left alone.
+const Set<String> _kStandaloneAfterCapital = {
+  'and',
+  'are',
+  'as',
+  'at',
+  'axis',
+  'equals',
+  'on',
+  'or',
+  'of',
+  'over',
+};
+
+/// The same split in an all-caps word, around the A of a kerning pair:
+/// "F ACTORY", "WHA T".
+final RegExp _kSplitCapsLeft = RegExp(
+  r'(?<![\p{L}])([FPTVWY]) (A\p{Lu}+)',
+  unicode: true,
+);
+final RegExp _kSplitCapsRight = RegExp(
+  r'(?<![\p{L}])(\p{Lu}*A) ([TVWY])(?![\p{L}])',
+  unicode: true,
+);
+
+/// A two-digit list number split by kerning: "1 1. Feeling".
+final RegExp _kSplitNumber = RegExp(r'^(\d) (\d)([.)]) ');
+
+/// Re-joins words the extractor split at a kerning pair.
+///
+/// Geometry cannot do this: syncfusion's glyph bounds are too loose (ligatures,
+/// tracking) — rebuilding spaces from them cost one book 30% of its real word
+/// breaks. The splits all fall at known kerning pairs, so the text is enough.
+// ponytail: pattern list, not a glyph rebuild. Measured on 9 books: ~130 fixes,
+// a handful of misses on lone single-letter variables ("Y coords").
+String repairKerningSplits(String text) => text
+    .replaceAllMapped(
+      _kSplitCapital,
+      (m) => _kStandaloneAfterCapital.contains(m[2]) ? m[0]! : '${m[1]}${m[2]}',
+    )
+    .replaceAllMapped(_kSplitCapsLeft, (m) => '${m[1]}${m[2]}')
+    .replaceAllMapped(_kSplitCapsRight, (m) => '${m[1]}${m[2]}')
+    .replaceFirstMapped(_kSplitNumber, (m) => '${m[1]}${m[2]}${m[3]} ');
+
 /// Opens a list item, whose marker hangs left of the text that follows it.
 final RegExp _kListMarker = RegExp(r'^([•▪◦·\-–—*]|\d{1,3}[.)]|[a-z][.)])\s');
+
+/// A list marker followed by a capitalized word: an item, not a wrapped line.
+final RegExp _kListItemStart = RegExp(
+  r'^([•▪◦·\-–—*]|\d{1,3}[.)])\s+\p{Lu}',
+  unicode: true,
+);
 
 /// Lines closer together than this many pitches belong to the same block — a
 /// running head and the watermark printed beside it, for instance.
@@ -222,11 +345,21 @@ List<String> reflowLines(List<PdfLine> lines, int pageCount) {
     buffer = StringBuffer();
   }
 
-  for (final line in kept) {
+  for (final raw in kept) {
     // Tabs and runs of spaces are layout, not language: some books set their
     // measure with tabs and the extractor hands them straight back.
-    final text = line.text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final text = repairKerningSplits(
+      raw.text.replaceAll(RegExp(r'\s+'), ' ').trim(),
+    );
     if (text.isEmpty) continue;
+    final line = (
+      text: text,
+      top: raw.top,
+      left: raw.left,
+      right: raw.right,
+      fontSize: raw.fontSize,
+      pageIndex: raw.pageIndex,
+    );
     final samePage = previous != null && previous.pageIndex == line.pageIndex;
     final step = samePage ? line.top - previous.top : null;
     if (previous != null &&
@@ -445,6 +578,14 @@ bool _startsParagraph(
   // exists to measure across one, and a paragraph may legitimately continue.
   if ((line.fontSize - previous.fontSize).abs() > 0.5) return true;
   if (step != null && step > leading * 1.5) return true;
+  // A numbered or bulleted item after a finished sentence opens its own
+  // paragraph even when the book sets it flush, at body leading.
+  // The capital after the marker keeps a wrapped sentence that happens to
+  // start "2. the" from breaking.
+  if (_kListItemStart.hasMatch(line.text) &&
+      RegExp(r'[.!?:"”)]$').hasMatch(previous.text)) {
+    return true;
+  }
   // A first-line indent, measured against the line above rather than the page:
   // a book with a second, indented margin for asides would otherwise read as
   // one indent per line. A list item is the exception — its marker hangs to the

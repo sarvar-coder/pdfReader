@@ -19,7 +19,13 @@ class StatsScreen extends ConsumerWidget {
     return SafeArea(
       bottom: false,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 6, 18, 96),
+        // The shell's extendBody folds the floating nav into this inset.
+        padding: EdgeInsets.fromLTRB(
+          18,
+          6,
+          18,
+          MediaQuery.paddingOf(context).bottom + 16,
+        ),
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
