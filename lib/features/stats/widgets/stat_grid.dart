@@ -24,6 +24,9 @@ class StatGrid extends StatelessWidget {
       mainAxisSpacing: 12,
       crossAxisSpacing: 12,
       shrinkWrap: true,
+      // Zero, not the default: under the shell's extendBody the inherited
+      // padding holds the nav bar's height and opens a gap below the grid.
+      padding: EdgeInsets.zero,
       physics: const NeverScrollableScrollPhysics(),
       childAspectRatio: 1.7,
       children: [for (final stat in stats) _StatCard(stat: stat)],

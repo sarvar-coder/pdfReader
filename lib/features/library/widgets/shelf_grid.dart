@@ -31,6 +31,9 @@ class ShelfGrid extends StatelessWidget {
       crossAxisSpacing: 14,
       // The grid lives inside the page scroll view.
       shrinkWrap: true,
+      // Zero, not the default: under the shell's extendBody the inherited
+      // padding holds the nav bar's height and opens a gap below the grid.
+      padding: EdgeInsets.zero,
       physics: const NeverScrollableScrollPhysics(),
       // Cover (2:3) + a two-line name below it.
       childAspectRatio: 0.50,
