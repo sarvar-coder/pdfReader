@@ -39,4 +39,39 @@ void main() {
   test('the indent is two em-spaces, not ASCII spaces', () {
     expect(kIndent.codeUnits, [0x2003, 0x2003]);
   });
+
+  test('a display title split across sizes folds into one title', () {
+    final blocks = toBlocks(
+      [
+        '7',
+        'WHAT the',
+        'FEELINGS',
+        'you most',
+        'SUPPRESS',
+        'are trying to',
+        'TELL YOU',
+        'Emotional intelligence is not how infrequently you feel anything.',
+      ].join('\n\n'),
+    );
+    expect(
+      [for (final b in blocks) b.kind],
+      [BlockKind.title, BlockKind.title, BlockKind.body],
+    );
+    expect(blocks[0].text, '7');
+    expect(
+      blocks[1].text,
+      'WHAT the FEELINGS you most SUPPRESS are trying to TELL YOU',
+    );
+  });
+
+  test('consecutive headings with no fragment between stay apart', () {
+    final blocks = toBlocks(
+      'CHAPTER ONE\n\nThe Beginning\n\nHe woke before the alarm.',
+    );
+    expect(blocks.map((b) => b.text.trim()), [
+      'CHAPTER ONE',
+      'The Beginning',
+      'He woke before the alarm.',
+    ]);
+  });
 }

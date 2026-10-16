@@ -136,4 +136,75 @@ void main() {
 
     expect(pages.first, 'set and modify');
   });
+
+  test('a numbered item after a finished sentence opens a paragraph', () {
+    final pages = reflowLines([
+      line('something you have never experienced before.', top: 100),
+      line('09. Downsizing your friend group; feeling', top: 118),
+      line('more and more uncomfortable.', top: 136, right: 300),
+    ], 1);
+
+    expect(pages.first.split('\n\n'), [
+      'something you have never experienced before.',
+      '09. Downsizing your friend group; feeling more and more uncomfortable.',
+    ]);
+  });
+
+  test('a wrapped line opening with a number does not break the paragraph', () {
+    final pages = reflowLines([
+      line('the version shipped in release', top: 100),
+      line('2. the next one fixed it.', top: 118, right: 300),
+    ], 1);
+
+    expect(
+      pages.first,
+      'the version shipped in release 2. the next one fixed it.',
+    );
+  });
+
+  test('kerning splits re-join; real one-letter words stay', () {
+    expect(repairKerningSplits('Y ou’re beginning'), 'You’re beginning');
+    expect(repairKerningSplits('T able of Contents'), 'Table of Contents');
+    expect(repairKerningSplits('WHA T the'), 'WHAT the');
+    expect(repairKerningSplits('ABSTRACT F ACTORY'), 'ABSTRACT FACTORY');
+    expect(
+      repairKerningSplits('1 1. Feeling as though'),
+      '11. Feeling as though',
+    );
+    expect(repairKerningSplits('A lot of I think'), 'A lot of I think');
+    expect(repairKerningSplits('press Shift+F on Mac'), 'press Shift+F on Mac');
+    expect(
+      repairKerningSplits('class Box<T extends Object>'),
+      'class Box<T extends Object>',
+    );
+    expect(repairKerningSplits('Plan B is set'), 'Plan B is set');
+    expect(repairKerningSplits('if P and Q hold'), 'if P and Q hold');
+    expect(repairKerningSplits('along the Y axis'), 'along the Y axis');
+    expect(repairKerningSplits('TOTAL W'), 'TOTAL W');
+  });
+
+  test('file names clean into titles', () {
+    expect(
+      cleanTitle('Maybe_You_Should_Talk_to_Someone'),
+      'Maybe You Should Talk to Someone',
+    );
+    expect(
+      cleanTitle('31_10_2020_084952101_Essays_That_Will_Change_250402_141956'),
+      'Essays That Will Change',
+    );
+    expect(cleanTitle('Clean.Code.A.Handbook'), 'Clean Code A Handbook');
+    expect(
+      cleanTitle('Heathy-Brain-Happy-Life-pdf'),
+      'Heathy Brain Happy Life',
+    );
+    expect(
+      cleanTitle('750267473-Mobile-System-Design-v008_241222_214424'),
+      'Mobile System Design',
+    );
+    expect(cleanTitle('10_Rules_for_Life'), '10 Rules for Life');
+    expect(
+      cleanTitle('Designing Data-Intensive Applications'),
+      'Designing Data-Intensive Applications',
+    );
+  });
 }
