@@ -71,31 +71,35 @@ class PdfService {
         }
       });
 
+  /// Below this many pages one isolate is fast enough; splitting costs an
+  /// extra document load per worker.
+  static const _parallelMinPages = 40;
+
   /// Full per-page text extraction, used when opening the reader.
-  Future<PdfContent> extract(String path) => Isolate.run(() {
-        final document =
-            PdfDocument(inputBytes: File(path).readAsBytesSync());
-        try {
-          final count = document.pages.count;
-          final lines = <PdfLine>[
-            for (final line in PdfTextExtractor(document).extractTextLines())
-              (
-                text: line.text,
-                top: line.bounds.top,
-                left: line.bounds.left,
-                right: line.bounds.right,
-                fontSize: line.fontSize,
-                pageIndex: line.pageIndex,
-              ),
-          ];
-          return PdfContent(
-            pageCount: count,
-            pages: reflowLines(lines, count),
-          );
-        } finally {
-          document.dispose();
-        }
-      });
+  ///
+  /// Line extraction dominates (tens of seconds for a 400-page book on a
+  /// phone) and pages are independent, so the page range is split across
+  /// several isolates. The reflow then runs once over every line: running-head
+  /// detection needs the whole book.
+  // ponytail: each worker loads the full document, so memory grows with the
+  // worker count; capped at 4. Share one parse if large books ever OOM.
+  Future<PdfContent> extract(String path) async {
+    final count = await Isolate.run(() => _pageCount(path));
+    final workers = count < _parallelMinPages
+        ? 1
+        : (Platform.numberOfProcessors ~/ 2).clamp(1, 4);
+    final chunk = (count / workers).ceil();
+    final parts = await Future.wait([
+      for (var start = 0; start < count; start += chunk)
+        Isolate.run(
+          () => _extractLines(path, start, math.min(start + chunk, count) - 1),
+        ),
+    ]);
+    final lines = [for (final part in parts) ...part];
+    return Isolate.run(
+      () => PdfContent(pageCount: count, pages: reflowLines(lines, count)),
+    );
+  }
 
   /// The PDF's own table of contents, flattened depth-first, or an empty list
   /// when the file declares none. Nesting is dropped — the reader shows one
@@ -195,6 +199,37 @@ String cleanTitle(String stem) {
   }
   final title = words.join(' ').replaceAll(RegExp(r'^[-–\s]+|[-–\s]+$'), '');
   return title.isEmpty ? stem : title;
+}
+
+int _pageCount(String path) {
+  final document = PdfDocument(inputBytes: File(path).readAsBytesSync());
+  try {
+    return document.pages.count;
+  } finally {
+    document.dispose();
+  }
+}
+
+/// The lines of pages [first]..[last] (inclusive), as plain records so they
+/// can cross back from a worker isolate.
+List<PdfLine> _extractLines(String path, int first, int last) {
+  final document = PdfDocument(inputBytes: File(path).readAsBytesSync());
+  try {
+    return [
+      for (final line in PdfTextExtractor(document)
+          .extractTextLines(startPageIndex: first, endPageIndex: last))
+        (
+          text: line.text,
+          top: line.bounds.top,
+          left: line.bounds.left,
+          right: line.bounds.right,
+          fontSize: line.fontSize,
+          pageIndex: line.pageIndex,
+        ),
+    ];
+  } finally {
+    document.dispose();
+  }
 }
 
 /// Walks the outline tree depth-first, keeping every entry that resolves to a

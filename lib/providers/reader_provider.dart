@@ -90,10 +90,19 @@ final chaptersProvider = FutureProvider.autoDispose<List<Chapter>>((ref) async {
   final book = ref.read(currentBookProvider)!; // path != null ⇒ book exists
   final storage = ref.watch(storageServiceProvider);
 
+  // Wait for the reader's extraction rather than racing it with a second one:
+  // a book without an outline would otherwise be extracted twice at once.
+  final content = await ref.watch(readerContentProvider.future);
   final cached = await storage.readToc(book.id);
   if (cached != null) return cached;
-  final chapters =
-      await buildChapters(ref.watch(pdfServiceProvider), path, null);
+  // Fresh content is per page and reusable; a text-cache hit is one joined
+  // page, so headings could not be placed and the PDF is read again.
+  final perPage = content != null && content.pages.length == content.pageCount;
+  final chapters = await buildChapters(
+    ref.watch(pdfServiceProvider),
+    path,
+    perPage ? content : null,
+  );
   await storage.writeToc(book.id, chapters);
   return chapters;
 });
