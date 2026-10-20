@@ -20,6 +20,12 @@ flutter test test/reflow_test.dart test/note_page_test.dart test/note_screen_tes
 Always name the four files. Bare `flutter test` also runs `test/gen_icon_test.dart`, which is a
 rasterizer rather than a test — it rewrites `assets/icon/*.png`.
 
+Native Kotlin app (`app/`, mid-migration from Flutter; JDK 17):
+
+```bash
+JAVA_HOME=/opt/homebrew/opt/openjdk@17 ./gradlew testDebugUnitTest lintDebug assembleDebug
+```
+
 ## Architecture
 
 `main.dart` builds `StorageService` **before** `runApp` and injects it via a `ProviderScope` override,
