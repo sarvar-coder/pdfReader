@@ -57,13 +57,16 @@ class PdfService(context: Context) {
     private val lock = Mutex()
     private val inFlight = HashMap<String, Deferred<PdfContent>>()
 
-    /** Page count and metadata; the title falls back to a cleaned file name. */
+    /**
+     * Page count and metadata; title/author are null when unusable. No file-name fallback: the
+     * stored file is named by id, so the importer applies [cleanTitle] to the original name.
+     */
     suspend fun info(file: File): PdfInfo = withContext(Dispatchers.IO) {
         load(file).use { doc ->
             val meta = doc.documentInformation
             PdfInfo(
                 pageCount = doc.numberOfPages,
-                title = usableMeta(meta?.title) ?: cleanTitle(file.nameWithoutExtension),
+                title = usableMeta(meta?.title),
                 author = usableMeta(meta?.author),
             )
         }

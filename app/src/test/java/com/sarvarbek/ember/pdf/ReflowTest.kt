@@ -165,7 +165,9 @@ class ReflowTest {
         assertEquals("Designing Data-Intensive Applications", cleanTitle("Designing Data-Intensive Applications"))
     }
 
-    @Test fun `metadata filters junk`() {
+    @Test fun `metadata filters junk to null, with no file-name fallback`() {
+        assertEquals(null, usableMeta(null))
+        assertEquals(null, usableMeta(" "))
         assertEquals(null, usableMeta("Microsoft Word - draft3.docx"))
         assertEquals(null, usableMeta(" Untitled "))
         assertEquals("Ember", usableMeta(" Ember "))
