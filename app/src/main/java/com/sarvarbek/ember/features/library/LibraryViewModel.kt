@@ -9,7 +9,10 @@ import com.sarvarbek.ember.AppContainer
 import com.sarvarbek.ember.data.ReadingStats
 import com.sarvarbek.ember.data.db.Book
 import com.sarvarbek.ember.data.readingStatsFlow
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -23,6 +26,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 /** A shelf tile: the Book plus its rendered cover, if any. [coverStamp] changes when the cover file does. */
 data class ShelfBook(val book: Book, val cover: File?, val coverStamp: Long)
@@ -84,7 +88,7 @@ class LibraryViewModel(private val c: AppContainer) : ViewModel() {
         // Backfill covers a killed import never rendered.
         c.appScope.launch(Dispatchers.IO) {
             c.db.books().all().first()
-                .filter { !c.files.cover(it.id).exists() && c.files.pdf(it.id).exists() }
+                .filter { !background.containsKey(it.id) && !c.files.cover(it.id).exists() && c.files.pdf(it.id).exists() }
                 .forEach { renderCover(c.files.pdf(it.id), it.id) }
         }
     }
@@ -106,6 +110,8 @@ class LibraryViewModel(private val c: AppContainer) : ViewModel() {
 
     fun remove(book: Book) {
         c.appScope.launch(Dispatchers.IO) {
+            // Stop its cover/text work first, so nothing writes files after they're deleted.
+            background.remove(book.id)?.cancelAndJoin()
             c.db.books().deleteBook(book.id)
             c.files.deleteAll(book.id)
             _messages.trySend("Removed “${book.title}”")
@@ -121,13 +127,19 @@ class LibraryViewModel(private val c: AppContainer) : ViewModel() {
             write(pdf)
             // Best-effort metadata: a parse failure still adds the Book.
             val info = runCatching { c.pdf.info(pdf) }.getOrNull()
-            val title = info?.title ?: titleFromFileName(fileName)
+            val title = info?.title?.takeIf { it.isNotBlank() } ?: titleFromFileName(fileName)
             val (start, end) = CoverPalette.forTitle(title)
+            // Detached so the shelf shows the Book now: gradient until the cover lands, text cached for first open.
+            // Registered before the row exists, so a remove always finds it.
+            val job = c.appScope.launch(Dispatchers.IO, CoroutineStart.LAZY) {
+                launch { renderCover(pdf, id) }
+                launch { runCatching { c.pdf.extract(pdf) } }
+            }
+            background[id] = job
+            job.invokeOnCompletion { background.remove(id, job) }
             c.db.books().upsert(Book(id, title, info?.author ?: "", 0, info?.pageCount ?: 0, start, end))
             _messages.trySend("Added “$title”")
-            // Detached so the shelf shows the Book now: gradient until the cover lands, text cached for first open.
-            c.appScope.launch(Dispatchers.IO) { renderCover(pdf, id) }
-            c.appScope.launch(Dispatchers.IO) { runCatching { c.pdf.extract(pdf) } }
+            job.start()
         } catch (e: Exception) {
             c.files.deleteAll(id)
             _messages.trySend("Couldn’t import PDF: ${e.message}")
@@ -136,7 +148,17 @@ class LibraryViewModel(private val c: AppContainer) : ViewModel() {
         }
     }
 
+    /** Renders to a temp file and keeps it only if the Book still exists, so a remove mid-render leaves no orphan. */
     private suspend fun renderCover(pdf: File, id: String) {
-        if (runCatching { c.pdf.renderCover(pdf, c.files.cover(id)) }.getOrDefault(false)) coverTick.update { it + 1 }
+        val cover = c.files.cover(id)
+        val tmp = File(cover.path + ".tmp") // "<id>." prefix: StorageFiles.deleteAll sweeps it too
+        val ok = runCatching { c.pdf.renderCover(pdf, tmp) }.getOrDefault(false)
+        if (ok && c.db.books().get(id) != null && tmp.renameTo(cover)) coverTick.update { it + 1 } else tmp.delete()
+    }
+
+    private companion object {
+        // ponytail: process-wide so a recreated ViewModel still sees in-flight work; one Job per Book id.
+        /** Background cover/text work per Book id, cancelled on remove. */
+        val background = ConcurrentHashMap<String, Job>()
     }
 }

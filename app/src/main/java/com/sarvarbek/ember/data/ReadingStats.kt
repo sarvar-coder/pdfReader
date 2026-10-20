@@ -5,7 +5,10 @@ import com.sarvarbek.ember.data.db.EmberDatabase
 import com.sarvarbek.ember.data.db.ReadingSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import java.time.Instant
 import java.time.LocalDate
@@ -90,8 +93,16 @@ data class ReadingStats(
     }
 }
 
-/** Live [ReadingStats], recomputed off the main thread whenever sessions or books change. */
+/** Today's date, re-checked every minute, so stats roll over at midnight. Restarts with the collector on resume. */
+private val todayFlow = flow {
+    while (true) {
+        emit(LocalDate.now())
+        delay(60_000)
+    }
+}.distinctUntilChanged()
+
+/** Live [ReadingStats], recomputed off the main thread when sessions, books or the date change. */
 fun readingStatsFlow(db: EmberDatabase): Flow<ReadingStats> =
-    combine(db.sessions().all(), db.books().all()) { sessions, books ->
-        ReadingStats.fromData(sessions, books, LocalDate.now())
+    combine(db.sessions().all(), db.books().all(), todayFlow) { sessions, books, today ->
+        ReadingStats.fromData(sessions, books, today)
     }.flowOn(Dispatchers.Default)
