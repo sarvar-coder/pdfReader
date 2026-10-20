@@ -39,9 +39,20 @@ class PaginationTest {
     }
 
     @Test
-    fun fractionMapsToPage() {
-        assertEquals(0, pageForFraction(0.7, 1))
-        assertEquals(5, pageForFraction(0.5, 11))
-        assertEquals(10, pageForFraction(1.5, 11))
+    fun fractionAnchorsToTheCharAndSurvivesRepagination() {
+        val body = INDENT + "abcdefghi ".repeat(9)
+        val blocks = listOf(Block(BlockKind.Title, "TITLE"), Block(BlockKind.Body, body))
+        val total = totalChars(blocks)
+        val small = paginate(blocks, height = 50f, fontPx = 10f, measure = ::measure)
+        assertEquals(listOf(0, 5 + 20, 5 + 70), small.map { it.charStart })
+
+        // Reading page 2 of the small layout, then repaginating taller: land on the page holding that char.
+        val f = fractionOf(small[1], total)
+        assertEquals(1, pageForFraction(f, small, total))
+        val tall = paginate(blocks, height = 80f, fontPx = 10f, measure = ::measure)
+        val i = pageForFraction(f, tall, total)
+        assertTrue(tall[i].charStart <= small[1].charStart)
+        assertTrue(tall.getOrNull(i + 1)?.let { it.charStart > small[1].charStart } ?: true)
+        assertEquals(0, pageForFraction(0.0, tall, total))
     }
 }

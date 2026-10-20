@@ -35,9 +35,9 @@ sealed interface ReaderContent {
     data object Empty : ReaderContent
     data class Failed(val message: String) : ReaderContent
 
-    /** [pdfPages] is the real PDF page count, for the "p / N" label. */
+    /** [pdfPages] is the real PDF page count, for the "p / N" label; [chars] the text length, see [totalChars]. */
     @Immutable
-    data class Ready(val blocks: List<Block>, val chapters: List<Chapter>, val pdfPages: Int) : ReaderContent
+    data class Ready(val blocks: List<Block>, val chapters: List<Chapter>, val pdfPages: Int, val chars: Int) : ReaderContent
 }
 
 /**
@@ -64,10 +64,14 @@ class ReaderViewModel(private val container: AppContainer, private val bookId: S
     private val snacks = Channel<String>(Channel.BUFFERED)
     val messages = snacks.receiveAsFlow()
 
-    /** Canonical position, 0..1 of the reflowed text. Plain fields: nothing recomposes on a page turn. */
+    /**
+     * Canonical position: char offset of the current page's start over the Book's total chars, so it survives
+     * repagination exactly. Plain fields: nothing recomposes on a page turn.
+     */
     var fraction = 0.0
         private set
     private var pdfPage = 0
+    private var chapter: String? = null
     private var totalPages = 0
     private var currentPage = 0
     private var loaded = false
@@ -84,6 +88,9 @@ class ReaderViewModel(private val container: AppContainer, private val bookId: S
                 totalPages = book.totalPages
                 currentPage = book.currentPage
                 sessionStartPage = currentPage
+                // Seeded from the saved row so an onStop before the first settled page can't write page 0.
+                pdfPage = (book.currentPage - 1).coerceAtLeast(0)
+                chapter = book.chapter
             }
             loaded = true
             _content.value = load()
@@ -103,7 +110,7 @@ class ReaderViewModel(private val container: AppContainer, private val bookId: S
                 val chapters = pdf.chapters.ifEmpty {
                     blocks.filter { it.kind == BlockKind.Title }.map { Chapter(it.text.trim(), it.page) }
                 }
-                if (blocks.isEmpty()) ReaderContent.Empty else ReaderContent.Ready(blocks, chapters, pdf.pages.size)
+                if (blocks.isEmpty()) ReaderContent.Empty else ReaderContent.Ready(blocks, chapters, pdf.pages.size, totalChars(blocks))
             }
         } catch (e: CancellationException) {
             throw e
@@ -118,14 +125,16 @@ class ReaderViewModel(private val container: AppContainer, private val bookId: S
     }
 
     /**
-     * Called when the reader settles on reflowed page [index] of [count]. Settling on the page the saved
-     * fraction already maps to (a restore, a repagination) keeps the fraction as is, so it never drifts.
-     * The Book row is written ~500 ms later.
+     * Called when the reader settles on reflowed page [index]. Settling on the page the saved fraction already
+     * points into (a restore, a repagination) keeps the fraction as is. The Book row is written ~500 ms later.
      */
-    fun onPosition(index: Int, count: Int, pdfPage: Int) {
-        this.pdfPage = pdfPage
-        if (pageForFraction(fraction, count) == index) return
-        fraction = if (count <= 1) 0.0 else index.toDouble() / (count - 1)
+    fun onPosition(index: Int, pages: List<Page>) {
+        val ready = _content.value as? ReaderContent.Ready ?: return
+        val page = pages.getOrNull(index) ?: return
+        pdfPage = page.pdfPage
+        chapter = chapterAt(pdfPage)
+        if (pageForFraction(fraction, pages, ready.chars) == index) return
+        fraction = fractionOf(page, ready.chars)
         if (totalPages > 0) currentPage = (fraction * totalPages).roundToInt()
         saveJob?.cancel()
         saveJob = viewModelScope.launch { delay(500); savePosition() }
@@ -139,7 +148,7 @@ class ReaderViewModel(private val container: AppContainer, private val bookId: S
         if (!loaded || _content.value !is ReaderContent.Ready) return
         val f = fraction
         val page = currentPage
-        val chapter = chapterAt(pdfPage)
+        val chapter = chapter
         container.appScope.launch {
             val book = books.get(bookId) ?: return@launch
             books.update(book.copy(readingFraction = f, currentPage = page, chapter = chapter ?: book.chapter))
@@ -174,7 +183,7 @@ class ReaderViewModel(private val container: AppContainer, private val bookId: S
 
     fun addBookmark() {
         val page = pdfPage + 1
-        val chapter = chapterAt(pdfPage) ?: "Page $page"
+        val chapter = chapter ?: "Page $page"
         val note = title.value
         viewModelScope.launch {
             val now = System.currentTimeMillis()

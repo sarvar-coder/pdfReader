@@ -58,9 +58,12 @@ fun ReaderSettings.blockStyle(kind: BlockKind): TextStyle {
 @Immutable
 data class Frag(val kind: BlockKind, val text: String, val isFirst: Boolean, val block: Int, val start: Int)
 
-/** One reflowed page; [pdfPage] is the 0-based PDF page its first slice comes from. */
+/**
+ * One reflowed page. [pdfPage] is the 0-based PDF page its first slice comes from; [charStart] is that slice's
+ * offset in the whole Book's text (all block texts end to end), the anchor that survives repagination.
+ */
 @Immutable
-data class Page(val frags: List<Frag>, val pdfPage: Int)
+data class Page(val frags: List<Frag>, val pdfPage: Int, val charStart: Int)
 
 /** A measured block: each line's end offset (exclusive) and height, in px. */
 class Measured(val lineEnds: IntArray, val lineHeights: FloatArray)
@@ -71,13 +74,16 @@ class Measured(val lineEnds: IntArray, val lineHeights: FloatArray)
  * [fontPx] scales the heading margins.
  */
 fun paginate(blocks: List<Block>, height: Float, fontPx: Float, measure: (Block) -> Measured): List<Page> {
+    val blockStart = IntArray(blocks.size)
+    for (i in 1 until blocks.size) blockStart[i] = blockStart[i - 1] + blocks[i - 1].text.length
     val pages = mutableListOf<Page>()
     var current = mutableListOf<Frag>()
     var used = 0f
 
     fun flush() {
         if (current.isNotEmpty()) {
-            pages += Page(current, blocks[current.first().block].page)
+            val first = current.first()
+            pages += Page(current, blocks[first.block].page, blockStart[first.block] + first.start)
             current = mutableListOf()
             used = 0f
         }
@@ -120,9 +126,17 @@ fun paginate(blocks: List<Block>, height: Float, fontPx: Float, measure: (Block)
         }
     }
     flush()
-    return pages.ifEmpty { listOf(Page(emptyList(), 0)) }
+    return pages.ifEmpty { listOf(Page(emptyList(), 0, 0)) }
 }
 
-/** Maps a 0..1 reading [fraction] to a page index in [0, count). */
-fun pageForFraction(fraction: Double, count: Int): Int =
-    if (count <= 1) 0 else (fraction.coerceIn(0.0, 1.0) * (count - 1)).roundToInt().coerceIn(0, count - 1)
+/** Total chars of [blocks] end to end: the denominator of the reading fraction. */
+fun totalChars(blocks: List<Block>): Int = blocks.sumOf { it.text.length }
+
+/** The reading fraction at the start of [page]: its char offset over the Book's [total] chars. */
+fun fractionOf(page: Page, total: Int): Double = if (total <= 0) 0.0 else page.charStart.toDouble() / total
+
+/** The page holding the char a 0..1 reading [fraction] of [total] chars points at. */
+fun pageForFraction(fraction: Double, pages: List<Page>, total: Int): Int {
+    val char = (fraction.coerceIn(0.0, 1.0) * total).roundToInt()
+    return (pages.indexOfLast { it.charStart <= char }).coerceAtLeast(0)
+}

@@ -74,7 +74,6 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -124,10 +123,9 @@ fun ReaderScreen(container: AppContainer, bookId: String, onBack: () -> Unit, on
     // (Re)pagination keeps the reading fraction; then every settled page is reported as the position.
     LaunchedEffect(pages) {
         val p = pages ?: return@LaunchedEffect
-        pagerState.scrollToPage(pageForFraction(vm.fraction, p.size))
-        snapshotFlow { pagerState.settledPage }.collect { i ->
-            p.getOrNull(i)?.let { vm.onPosition(i, p.size, it.pdfPage) }
-        }
+        val chars = ready?.chars ?: return@LaunchedEffect
+        pagerState.scrollToPage(pageForFraction(vm.fraction, p, chars))
+        snapshotFlow { pagerState.settledPage }.collect { vm.onPosition(it, p) }
     }
     LaunchedEffect(pagerState) { snapshotFlow { pagerState.currentPage }.collect { selection = null } }
 
@@ -178,7 +176,8 @@ fun ReaderScreen(container: AppContainer, bookId: String, onBack: () -> Unit, on
                     ready == null || p == null -> CircularProgressIndicator(color = theme.ink.copy(alpha = 0.5f))
                     else -> HorizontalPager(
                         state = pagerState,
-                        key = { it },
+                        // A new pagination gets new keys, so no page keeps a stale scroll offset.
+                        key = { "${System.identityHashCode(p)}-$it" },
                         beyondViewportPageCount = 1,
                         modifier = Modifier.fillMaxSize(),
                     ) { i ->
@@ -188,7 +187,7 @@ fun ReaderScreen(container: AppContainer, bookId: String, onBack: () -> Unit, on
                             blocks = ready.blocks,
                             settings = settings,
                             marks = marks,
-                            selection = selection,
+                            selection = selection?.takeIf { it.page == i },
                             onSelect = { selection = it },
                             onTap = { if (selection != null) selection = null else chrome = !chrome },
                             onHighlight = vm::addHighlight,
@@ -222,11 +221,18 @@ private fun rememberPages(blocks: List<Block>?, box: IntSize, settings: ReaderSe
     val density = LocalDensity.current
     val resolver = LocalFontFamilyResolver.current
     val direction = LocalLayoutDirection.current
-    return produceState<List<Page>?>(null, blocks, box, settings.fontSize, settings.lineSpacing, settings.typeface, density) {
+    // Google Fonts load async; measuring before they land would paginate against the fallback face. True once
+    // the face has loaded (or failed to: offline keeps the fallback for good).
+    val fontReady by produceState(false, settings.typeface) {
+        value = false // produceState keeps its value across keys; a new face starts unloaded
+        runCatching { resolver.preload(settings.typeface.family) }
+        value = true
+    }
+    return produceState<List<Page>?>(null, blocks, box, settings.fontSize, settings.lineSpacing, settings.typeface, density, fontReady) {
         if (blocks == null || box.width == 0 || box.height == 0) return@produceState
-        if (value != null) delay(150) // let a dragged slider settle before re-measuring a whole book
-        // Google Fonts load async; measuring before they land would paginate against the fallback face.
-        withTimeoutOrNull(3_000) { runCatching { resolver.preload(settings.typeface.family) } }
+        // Font still loading: wait up to 3 s, then paginate with the fallback. When it does land, fontReady
+        // flips, which restarts this producer and re-measures with the real face.
+        if (!fontReady) delay(3_000) else if (value != null) delay(150) // let a dragged slider settle
         value = withContext(Dispatchers.Default) {
             val job = coroutineContext.job
             val measurer = TextMeasurer(resolver, density, direction, cacheSize = 0)

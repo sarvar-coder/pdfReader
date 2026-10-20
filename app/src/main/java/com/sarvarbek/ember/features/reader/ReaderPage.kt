@@ -1,5 +1,6 @@
 package com.sarvarbek.ember.features.reader
 
+import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -70,6 +71,22 @@ private val Swatches = listOf(AppColors.hlYellow, AppColors.hlGreen, AppColors.h
 data class WordSelection(val page: Int, val frag: Int, val start: Int, val end: Int, val done: Boolean)
 
 /**
+ * Keeps the lift of a long press from also counting as a page tap (which would clear the fresh selection and
+ * toggle the chrome): taps are ignored while a long press is live and just after it ends.
+ */
+private class PressGate {
+    var active = false
+    private var endedAt = 0L
+
+    fun end() {
+        active = false
+        endedAt = SystemClock.uptimeMillis()
+    }
+
+    fun blocksTap() = active || SystemClock.uptimeMillis() - endedAt < 300
+}
+
+/**
  * One swipeable reading page. A tap goes to [onTap]; a long press on a slice selects a word (dragging extends
  * it) and on release shows the highlight / add-to-words tooltip.
  */
@@ -87,11 +104,12 @@ fun ReaderPage(
     onAddWord: (word: String, context: String) -> Unit,
 ) {
     val tap by rememberUpdatedState(onTap)
+    val gate = remember { PressGate() }
     val fontDp = with(LocalDensity.current) { settings.fontSize.sp.toDp() }
     Column(
         Modifier
             .fillMaxSize()
-            .pointerInput(Unit) { detectTapGestures { tap() } }
+            .pointerInput(Unit) { detectTapGestures { if (!gate.blocksTap()) tap() } }
             // ponytail: scroll absorbs the rare re-wrap overflow; Flutter's "more below" chevron cue is skipped.
             .verticalScroll(rememberScrollState())
             .padding(PagePadding),
@@ -105,6 +123,7 @@ fun ReaderPage(
                 settings = settings,
                 marks = marks,
                 selection = sel,
+                gate = gate,
                 onSelect = { range, done -> onSelect(range?.let { WordSelection(index, i, it.start, it.end, done) }) },
                 onHighlight = { color ->
                     onHighlight(frag.text.substring(sel!!.start, sel.end), color, blocks[frag.block].page)
@@ -128,6 +147,7 @@ private fun FragText(
     settings: ReaderSettings,
     marks: List<Pair<String, Color>>,
     selection: WordSelection?,
+    gate: PressGate,
     onSelect: (TextRange?, done: Boolean) -> Unit,
     onHighlight: (Color) -> Unit,
     onAddWord: (() -> Unit)?,
@@ -161,6 +181,7 @@ private fun FragText(
                         onDragStart = { pos ->
                             anchor = wordAt(pos)?.takeIf { !it.collapsed } ?: return@detectDragGesturesAfterLongPress
                             range = anchor
+                            gate.active = true
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             select(anchor, false)
                         },
@@ -171,8 +192,16 @@ private fun FragText(
                                 select(range, false)
                             }
                         },
-                        onDragEnd = { range?.let { select(it, true) }; range = null },
-                        onDragCancel = { range?.let { select(it, true) }; range = null },
+                        onDragEnd = {
+                            range?.let { select(it, true) }
+                            range = null
+                            gate.end()
+                        },
+                        onDragCancel = {
+                            if (range != null) select(null, false)
+                            range = null
+                            gate.end()
+                        },
                     )
                 },
         )
