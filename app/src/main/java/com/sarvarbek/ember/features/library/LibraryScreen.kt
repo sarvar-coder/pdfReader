@@ -38,7 +38,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -190,15 +189,13 @@ private fun Header(inProgress: Int, total: Int, importing: Boolean) {
 private fun ShelfTile(item: ShelfBook, onClick: () -> Unit, onLongClick: () -> Unit) {
     val book = item.book
     Column(Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)) {
-        // Keyed on the stamp: BookCover decodes once per file, so a newly rendered cover needs a fresh slot.
-        key(item.coverStamp) {
-            BookCover(
-                title = book.title,
-                gradient = listOf(Color(book.gradientStart), Color(book.gradientEnd)),
-                modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
-                coverFile = item.cover,
-            )
-        }
+        BookCover(
+            title = book.title,
+            gradient = remember(book.gradientStart, book.gradientEnd) { listOf(Color(book.gradientStart), Color(book.gradientEnd)) },
+            modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
+            coverFile = item.cover,
+            coverStamp = item.coverStamp,
+        )
         Spacer(Modifier.height(7.dp))
         Text(
             book.title,

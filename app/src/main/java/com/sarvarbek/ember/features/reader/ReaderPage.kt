@@ -110,7 +110,7 @@ fun ReaderPage(
         Modifier
             .fillMaxSize()
             .pointerInput(Unit) { detectTapGestures { if (!gate.blocksTap()) tap() } }
-            // ponytail: scroll absorbs the rare re-wrap overflow; Flutter's "more below" chevron cue is skipped.
+            // ponytail: scroll absorbs the rare re-wrap overflow, with no "more below" cue; add a chevron if it confuses.
             .verticalScroll(rememberScrollState())
             .padding(PagePadding),
     ) {

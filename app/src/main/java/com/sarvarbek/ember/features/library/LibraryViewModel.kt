@@ -3,12 +3,14 @@ package com.sarvarbek.ember.features.library
 import android.content.ContentResolver
 import android.net.Uri
 import android.provider.OpenableColumns
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sarvarbek.ember.AppContainer
 import com.sarvarbek.ember.data.ReadingStats
 import com.sarvarbek.ember.data.db.Book
 import com.sarvarbek.ember.data.readingStatsFlow
+import com.sarvarbek.ember.pdf.cleanTitle
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -29,6 +31,7 @@ import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 /** A shelf tile: the Book plus its rendered cover, if any. [coverStamp] changes when the cover file does. */
+@Immutable
 data class ShelfBook(val book: Book, val cover: File?, val coverStamp: Long)
 
 val Book.inProgress get() = currentPage in 1 until totalPages
@@ -47,9 +50,8 @@ object CoverPalette {
     fun forTitle(title: String) = gradients[Math.floorMod(title.hashCode(), gradients.size)]
 }
 
-/** "Some_Book.pdf" -> "Some Book". */
-internal fun titleFromFileName(name: String) =
-    name.replace(Regex("\\.pdf$", RegexOption.IGNORE_CASE), "").replace('_', ' ').trim().ifEmpty { "Untitled" }
+/** A title from the original file name, for PDFs whose metadata names none: "Some_Book.pdf" -> "Some Book". */
+internal fun titleFromFileName(name: String) = cleanTitle(name.substringBeforeLast('.')).ifBlank { "Untitled" }
 
 class LibraryViewModel(private val c: AppContainer) : ViewModel() {
     /** Bumped when a cover lands on disk, so the shelf re-reads cover stamps. */
