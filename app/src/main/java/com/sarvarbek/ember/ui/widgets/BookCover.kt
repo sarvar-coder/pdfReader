@@ -40,7 +40,7 @@ import java.io.File
 private val shape = RoundedCornerShape(10.dp)
 
 /** Decoded covers by "path@stamp", so scrolling the shelf back neither re-decodes nor flashes the gradient. */
-// ponytail: 32 entries (~300x450 ARGB, ~17 MB worst case); size by bytes if shelves grow far past that.
+// ponytail: 32 entries (~300x450 ARGB at 2:3, ~17 MB; tall pages cost more); size by bytes if shelves grow far past that.
 private val covers = LruCache<String, ImageBitmap>(32)
 
 /** Covers are drawn about a third of the screen wide; decode no wider than ~this many pixels. */
@@ -58,6 +58,7 @@ private fun decode(path: String): ImageBitmap? {
  * A Book's cover: the rendered first page from [coverFile] when it exists and decodes, otherwise
  * a two-color gradient with the centered title. The caller sizes it (e.g. aspectRatio(2f / 3f)).
  * [coverStamp] is the file's lastModified, so a re-rendered cover is decoded afresh.
+ * In lazy lists, key items by book: a reused slot shows its previous cover until the new one decodes.
  */
 @Composable
 fun BookCover(

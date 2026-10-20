@@ -14,7 +14,7 @@ Domain vocabulary: `CONTEXT.md`.
 ## Build & test
 
 ```bash
-JAVA_HOME=/opt/homebrew/opt/openjdk@17 ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease
+./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease   # JDK 17
 ```
 
 Unit tests are plain JVM (no Robolectric). PdfBox-Android needs a `Context` for its font resources, so
