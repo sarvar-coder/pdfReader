@@ -99,6 +99,13 @@ interface WordDao {
     @Query("SELECT EXISTS(SELECT 1 FROM words WHERE collectionId = :collectionId AND text = :text)")
     suspend fun existsIn(collectionId: Long, text: String): Boolean
 
+    /** The name of the Collection already holding [text], if any. */
+    @Query(
+        """SELECT c.name FROM words w JOIN word_collections c ON c.id = w.collectionId
+           WHERE w.text = :text LIMIT 1""",
+    )
+    suspend fun collectionOf(text: String): String?
+
     @Insert
     suspend fun insertCollection(collection: WordCollection): Long
 

@@ -66,12 +66,20 @@ class CollectionViewModel(private val db: EmberDatabase, collectionId: Long) : V
     fun delete(word: Word) = viewModelScope.launch { db.words().deleteWord(word) }
 }
 
-/** [context] with every whole-word, case-insensitive occurrence of [word] in bold. */
+/**
+ * [context] with every case-insensitive occurrence of [word] in bold, unless it sits inside a longer
+ * word ("the" in "theme"). Plain indexOf rather than a \b regex, so "c++" still matches.
+ */
 fun boldWord(context: String, word: String): AnnotatedString = buildAnnotatedString {
     append(context)
     if (word.isBlank()) return@buildAnnotatedString
-    Regex("\\b${Regex.escape(word)}\\b", RegexOption.IGNORE_CASE).findAll(context).forEach {
-        addStyle(SpanStyle(fontWeight = FontWeight.Bold, color = AppColors.ink), it.range.first, it.range.last + 1)
+    var i = context.indexOf(word, ignoreCase = true)
+    while (i >= 0) {
+        val end = i + word.length
+        val whole = context.getOrNull(i - 1)?.isLetterOrDigit() != true &&
+            context.getOrNull(end)?.isLetterOrDigit() != true
+        if (whole) addStyle(SpanStyle(fontWeight = FontWeight.Bold, color = AppColors.ink), i, end)
+        i = context.indexOf(word, end, ignoreCase = true)
     }
 }
 

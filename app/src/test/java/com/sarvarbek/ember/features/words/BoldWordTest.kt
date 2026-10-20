@@ -10,5 +10,8 @@ class BoldWordTest {
     @Test fun boldsWholeWordsIgnoringCase() =
         assertEquals(listOf("The", "the"), bolded("The cat sat on the theme.", "the"))
 
-    @Test fun regexCharactersAreLiteral() = assertEquals(listOf("a.b"), bolded("x a.b axb", "a.b"))
+    @Test fun symbolsMatchLiterally() {
+        assertEquals(listOf("a.b"), bolded("x a.b axb", "a.b"))
+        assertEquals(listOf("C++"), bolded("I wrote C++ today.", "c++"))
+    }
 }

@@ -10,8 +10,8 @@ class PlanAddTest {
         val collections = linkedMapOf<WordCollection, MutableList<String>>()
         for (w in words) {
             val latest = collections.keys.lastOrNull()
-            val inLatest = latest != null && w in collections.getValue(latest)
-            when (val plan = planAdd(latest, latest?.let { collections.getValue(it).size } ?: 0, inLatest)) {
+            val savedIn = collections.entries.find { w in it.value }?.key?.name
+            when (val plan = planAdd(latest, latest?.let { collections.getValue(it).size } ?: 0, savedIn)) {
                 is AddPlan.Skip -> Unit
                 is AddPlan.Into -> collections.getValue(plan.collection) += w
                 is AddPlan.Open ->
@@ -41,6 +41,16 @@ class PlanAddTest {
     @Test fun duplicateInSameCollectionIsSkipped() =
         assertEquals(mapOf("Collection 1" to listOf("a", "b")), fill(listOf("a", "b", "a")))
 
-    @Test fun wordFromAFullCollectionStartsTheNext() =
-        assertEquals(listOf("w1"), fill((1..20).map { "w$it" } + "w1")["Collection 2"])
+    @Test fun repeatOfAFullCollectionsWordIsSkipped() =
+        assertEquals(mapOf("Collection 1" to 20), fill((1..20).map { "w$it" } + "w1").mapValues { it.value.size })
+
+    @Test fun duplicateNamesTheCollectionHoldingIt() =
+        assertEquals(AddPlan.Skip("Collection 1"), planAdd(WordCollection(2, "Collection 2"), 3, "Collection 1"))
+
+    @Test fun normalizeTrimsEdgePunctuationOnly() {
+        assertEquals("the", normalizeWord("  “The,”  "))
+        assertEquals("c++", normalizeWord("C++"))
+        assertEquals("don't", normalizeWord("don't."))
+        assertEquals("", normalizeWord(" —, "))
+    }
 }

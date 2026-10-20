@@ -1,5 +1,6 @@
 package com.sarvarbek.ember.features.notes
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,6 +52,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption.ATOMIC_MOVE
+import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 
 /** How long typing pauses before the notebook is written to disk. */
 private const val SAVE_DEBOUNCE_MS = 800L
@@ -65,19 +70,24 @@ private val writes = Dispatchers.IO.limitedParallelism(1)
  * empty field must not overwrite it), and never when nothing changed.
  */
 class NoteViewModel(private val file: File, private val appScope: CoroutineScope) : ViewModel() {
-    /** Null while the notebook is still being read off disk. */
+    /** Null while the notebook is still being read off disk, and for good if it could not be read. */
     var text by mutableStateOf<String?>(null)
         private set
 
-    /** The text as last written, so an unchanged notebook never rewrites. */
-    private var saved = ""
+    /** The file exists but could not be read; editing stays off so nothing is saved over it. */
+    var unreadable by mutableStateOf(false)
+        private set
+
+    /** The text as last written, so an unchanged notebook never rewrites. Set by the writer thread. */
+    @Volatile private var saved = ""
     private var pending: Job? = null
 
     init {
         viewModelScope.launch {
-            val loaded = withContext(Dispatchers.IO) { if (file.exists()) file.readText() else "" }
-            saved = loaded
-            text = loaded
+            // On the writer, so a save still queued by a just-closed notebook lands before this read.
+            withContext(writes) { runCatching { if (file.exists()) file.readText() else "" } }
+                .onSuccess { saved = it; text = it }
+                .onFailure { unreadable = true }
         }
     }
 
@@ -95,12 +105,17 @@ class NoteViewModel(private val file: File, private val appScope: CoroutineScope
         pending?.cancel()
         val t = text ?: return
         if (t == saved) return
-        saved = t
         appScope.launch(writes) {
-            // Write-then-rename, so a crash mid-write leaves the previous notebook intact.
-            val tmp = File(file.path + ".tmp")
-            tmp.writeText(t)
-            tmp.renameTo(file)
+            // Write-then-move, so a crash mid-write leaves the previous notebook intact. A failed write
+            // leaves `saved` stale, so the next flush retries.
+            try {
+                val tmp = File(file.path + ".tmp")
+                tmp.writeText(t)
+                Files.move(tmp.toPath(), file.toPath(), REPLACE_EXISTING, ATOMIC_MOVE)
+                saved = t
+            } catch (e: IOException) {
+                Log.w("NoteViewModel", "Couldn't save ${file.name}", e)
+            }
         }
     }
 
@@ -146,6 +161,13 @@ fun NoteScreen(container: AppContainer, bookId: String, title: String, onBack: (
                     tint = AppColors.emberDeep,
                 )
             }
+        }
+        if (vm.unreadable) {
+            Text(
+                "Couldn't open this notebook.",
+                Modifier.fillMaxWidth().padding(24.dp),
+                style = bodyStyle.copy(color = AppColors.inkFaint, textAlign = TextAlign.Center),
+            )
         }
         val text = vm.text ?: return@Column
         val body = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 12.dp)
