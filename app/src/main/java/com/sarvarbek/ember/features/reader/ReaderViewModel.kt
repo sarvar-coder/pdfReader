@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sarvarbek.ember.AppContainer
+import com.sarvarbek.ember.data.AddResult
 import com.sarvarbek.ember.data.db.Bookmark
 import com.sarvarbek.ember.data.db.Highlight
 import com.sarvarbek.ember.data.db.ReadingSession
@@ -196,9 +197,14 @@ class ReaderViewModel(private val container: AppContainer, private val bookId: S
 
     fun addWord(word: String, context: String) {
         viewModelScope.launch {
-            val ok = runCatching { container.words.add(word, context, bookId) }
-                .onFailure { if (it is CancellationException) throw it }.isSuccess
-            snacks.send(if (ok) "Added “$word” to words" else "Couldn’t add “$word”")
+            val result = runCatching { container.words.add(word, context, bookId) }
+                .onFailure { if (it is CancellationException) throw it }.getOrNull()
+            when (result) {
+                is AddResult.Added -> snacks.send("Added “$word” to ${result.collection}")
+                is AddResult.Duplicate -> snacks.send("“$word” is already in ${result.collection}")
+                AddResult.Empty -> Unit
+                null -> snacks.send("Couldn’t add “$word”")
+            }
         }
     }
 }
