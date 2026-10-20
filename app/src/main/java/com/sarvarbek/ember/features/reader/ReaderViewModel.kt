@@ -1,5 +1,6 @@
 package com.sarvarbek.ember.features.reader
 
+import android.util.Log
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -106,7 +107,7 @@ class ReaderViewModel(private val container: AppContainer, private val bookId: S
                 val blocks = pdf.pages.flatMapIndexed { i, text ->
                     if (text.isBlank()) emptyList() else toBlocks(text).map { it.copy(page = i) }
                 }
-                // No outline → the headings the classifier found (Flutter's buildChapters fallback).
+                // No outline → the headings the classifier found.
                 val chapters = pdf.chapters.ifEmpty {
                     blocks.filter { it.kind == BlockKind.Title }.map { Chapter(it.text.trim(), it.page) }
                 }
@@ -114,7 +115,8 @@ class ReaderViewModel(private val container: AppContainer, private val bookId: S
             }
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Throwable) { // includes NotImplementedError until the extractor lands
+        } catch (e: Throwable) { // PdfBox throws Errors too on some malformed files
+            Log.w("Reader", "couldn't read book", e)
             ReaderContent.Failed(e.message ?: e.toString())
         }
     }

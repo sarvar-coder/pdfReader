@@ -75,9 +75,9 @@ fun WordsScreen(container: AppContainer, onOpenCollection: (Long, String) -> Uni
         ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { Header(words = list.sumOf { it.count }, collections = list.size) }
+        item(key = "header") { Header(words = list.sumOf { it.count }, collections = list.size) }
         if (list.isEmpty()) {
-            item {
+            item(key = "empty") {
                 EmptyState(
                     Icons.Rounded.Create,
                     title = "No words yet",

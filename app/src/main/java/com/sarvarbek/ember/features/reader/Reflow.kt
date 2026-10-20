@@ -3,8 +3,8 @@ package com.sarvarbek.ember.features.reader
 import androidx.compose.runtime.Immutable
 
 /**
- * The reflow pipeline, part 1: plain extracted text → classified [Block]s. Pure string logic, ported
- * verbatim from the Flutter `reflow.dart`; [paginate] turns the blocks into screen-sized pages.
+ * The reflow pipeline, part 1: plain extracted text → classified [Block]s. Pure string logic;
+ * [paginate] turns the blocks into screen-sized pages.
  */
 
 /** A justified body paragraph, or a centered bold heading: a [Title] (chapter/section) or a smaller [Subtitle]. */

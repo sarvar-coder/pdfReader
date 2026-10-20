@@ -3,7 +3,7 @@ package com.sarvarbek.ember.features.reader
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** Port of the Flutter test/reflow_test.dart: block classification, pure string logic. */
+/** Block classification: pure string logic. */
 class ReflowTest {
     @Test
     fun allCapsLineBecomesTitle() {

@@ -43,7 +43,7 @@ fun EmberFlame(modifier: Modifier = Modifier, size: Dp = 62.dp) {
             .graphicsLayer { scaleX = 0.97f + t * 0.09f; scaleY = scaleX },
     ) {
         val r = this.size.minDimension / 2
-        // Halo: a soft radial fade past the edge stands in for the Flutter box shadow.
+        // Halo: a soft radial fade past the edge stands in for a box shadow.
         drawCircle(
             Brush.radialGradient(
                 listOf(halo.copy(alpha = (0.7f + t * 0.3f) * 0.55f), Color.Transparent),

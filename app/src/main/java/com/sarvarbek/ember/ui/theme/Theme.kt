@@ -45,7 +45,7 @@ private val typography = Typography().run {
     )
 }
 
-/** Light-only, like the Flutter app. Reader themes live in ReaderSettings. */
+/** Light-only. Reader themes live in ReaderSettings. */
 @Composable
 fun EmberTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = colors, typography = typography, content = content)

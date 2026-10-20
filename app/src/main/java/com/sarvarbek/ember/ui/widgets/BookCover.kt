@@ -1,6 +1,7 @@
 package com.sarvarbek.ember.ui.widgets
 
 import android.graphics.BitmapFactory
+import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -38,9 +39,26 @@ import java.io.File
 
 private val shape = RoundedCornerShape(10.dp)
 
+/** Decoded covers by "path@stamp", so scrolling the shelf back neither re-decodes nor flashes the gradient. */
+// ponytail: 32 entries (~300x450 ARGB at 2:3, ~17 MB; tall pages cost more); size by bytes if shelves grow far past that.
+private val covers = LruCache<String, ImageBitmap>(32)
+
+/** Covers are drawn about a third of the screen wide; decode no wider than ~this many pixels. */
+private const val TARGET_WIDTH = 300
+
+private fun decode(path: String): ImageBitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(path, bounds)
+    var sample = 1
+    while (bounds.outWidth / (sample * 2) >= TARGET_WIDTH) sample *= 2
+    return BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })?.asImageBitmap()
+}
+
 /**
  * A Book's cover: the rendered first page from [coverFile] when it exists and decodes, otherwise
  * a two-color gradient with the centered title. The caller sizes it (e.g. aspectRatio(2f / 3f)).
+ * [coverStamp] is the file's lastModified, so a re-rendered cover is decoded afresh.
+ * In lazy lists, key items by book: a reused slot shows its previous cover until the new one decodes.
  */
 @Composable
 fun BookCover(
@@ -48,12 +66,18 @@ fun BookCover(
     gradient: List<Color>,
     modifier: Modifier = Modifier,
     coverFile: File? = null,
+    coverStamp: Long = 0L,
     titleSize: TextUnit = 12.sp,
 ) {
-    val bitmap by produceState<ImageBitmap?>(null, coverFile) {
-        value = coverFile?.let { f ->
-            withContext(Dispatchers.IO) { BitmapFactory.decodeFile(f.path)?.asImageBitmap() }
+    val cacheKey = coverFile?.let { "${it.path}@$coverStamp" }
+    val bitmap by produceState(cacheKey?.let { covers.get(it) }, cacheKey) {
+        // produceState keeps its value across keys: an old cover stays up until the new one decodes.
+        val cached = cacheKey?.let { covers.get(it) }
+        if (coverFile == null || cached != null) {
+            value = cached
+            return@produceState
         }
+        value = withContext(Dispatchers.IO) { decode(coverFile.path)?.also { covers.put(cacheKey, it) } }
     }
     val image = bitmap
     if (image != null) {

@@ -11,7 +11,7 @@ _Avoid_: Document, file, PDF (the PDF is the source, the Book is the thing the r
 
 **Library**:
 The full set of imported Books.
-_Avoid_: Shelf, collection
+_Avoid_: Shelf, Collection (that is a bucket of Words)
 
 **Reflow**:
 Discarding a PDF's original layout and re-laying its text out to the screen and the reader's current
@@ -41,12 +41,23 @@ _Avoid_: Section, heading, toc, contents
 A passage the reader marked, stored as the quoted text itself.
 _Avoid_: Annotation, selection, marker
 
+**Word**:
+A single word the reader long-pressed in a Book and saved, stored lower-cased and trimmed of edge
+punctuation, with the sentence it came from and the Book it was picked in.
+_Avoid_: Vocabulary, term, flashcard
+
+**Collection**:
+A numbered bucket of at most 20 Words ("Collection 1", "Collection 2", …). A Word joins the newest
+Collection; when that one is full, a new Collection opens. A Word already saved in any Collection is
+skipped, never saved twice.
+_Avoid_: Deck, list, set
+
 **Bookmark**:
 A place in a Book the reader saved to return to.
 _Avoid_: Favourite, saved page
 
 **Notebook**:
-The reader's own writing about one Book — one per Book, readable in the same reflowed form as the Book.
+The reader's own writing about one Book — one per Book, written and read in the reading typeface.
 _Avoid_: Note, notes, journal
 
 **Reading session**:

@@ -7,6 +7,7 @@ class LibraryTest {
     @Test
     fun titleFromFileNameStripsExtensionAndUnderscores() {
         assertEquals("Maybe You Should", titleFromFileName("Maybe_You_Should.PDF"))
+        assertEquals("Essays That Will Change", titleFromFileName("31_10_2020_084952101_Essays_That_Will_Change.pdf"))
         assertEquals("Untitled", titleFromFileName(".pdf"))
     }
 

@@ -171,7 +171,7 @@ fun NoteScreen(container: AppContainer, bookId: String, title: String, onBack: (
         }
         val text = vm.text ?: return@Column
         val body = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 12.dp)
-        // ponytail: both modes scroll; Flutter pages them on a line grid. Ceiling: no page turns.
+        // ponytail: both modes scroll. Ceiling: no page turns.
         // Upgrade: page by TextLayoutResult line tops, as the reader's pagination does.
         if (reading) {
             Text(

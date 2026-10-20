@@ -17,7 +17,7 @@ import kotlin.math.roundToInt
  * page renders with ([blockStyle]), so layout == render.
  */
 
-/** The page box inset (Flutter's `kPagePadding`): left, top, right, bottom. */
+/** The page box inset: left, top, right, bottom. */
 val PagePadding = PaddingValues(start = 26.dp, top = 14.dp, end = 26.dp, bottom = 24.dp)
 
 /** [PagePadding]'s horizontal and vertical totals, in dp. */
