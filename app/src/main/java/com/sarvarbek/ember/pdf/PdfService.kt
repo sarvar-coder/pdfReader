@@ -133,7 +133,15 @@ class PdfService(context: Context) {
     /** Renders page 1 to [out] as PNG. False if the PDF can't be rendered. */
     suspend fun renderCover(file: File, out: File): Boolean = withContext(Dispatchers.IO) {
         runCatching {
-            PdfRenderer(ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)).use { renderer ->
+            val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            // The renderer owns pfd once constructed; close it ourselves only if construction fails.
+            val renderer = try {
+                PdfRenderer(pfd)
+            } catch (e: Exception) {
+                pfd.close()
+                throw e
+            }
+            renderer.use {
                 renderer.openPage(0).use { page ->
                     val height = (COVER_WIDTH * page.height / page.width.toFloat()).toInt().coerceAtLeast(1)
                     val bitmap = createBitmap(COVER_WIDTH, height)
