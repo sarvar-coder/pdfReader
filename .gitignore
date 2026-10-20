@@ -46,3 +46,9 @@ app.*.map.json
 
 # Claude Code local overrides
 .claude/settings.local.json
+
+# Kotlin / Gradle (native app)
+/app/build/
+.gradle/
+/local.properties
+.kotlin/
