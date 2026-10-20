@@ -8,6 +8,7 @@
         android:name=".App"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
+        android:enableOnBackInvokedCallback="true"
         android:label="Ember"
         android:theme="@style/Theme.Ember">
         <activity
