@@ -1,41 +1,11 @@
-# AGENTS.md
+# Project Memory — Ember
 
-Guidance for coding agents working in this repository. `CLAUDE.md` is a symlink to this file — edit
-`AGENTS.md`.
+Ember is a personal, single-user Android reading app (Kotlin, Jetpack Compose) that imports PDFs and
+**reflows** their text into swipeable, restyleable pages — prose only, original layout and images discarded.
 
-## Project
+`CLAUDE.md` is a symlink to this file — edit `AGENTS.md`.
 
-**Ember** — a personal, single-user Android reading app (Kotlin, Jetpack Compose). It imports PDFs, extracts
-their text, and **reflows** it into swipeable, screen-sized pages the user can restyle (theme, font size,
-typeface, line spacing). Original PDF layout/images are intentionally discarded — prose only. Long-pressing
-a word saves it into 20-word Collections.
-
-Domain vocabulary: `CONTEXT.md`. Use its words (Book, Page, Block, Reading fraction, Word, Collection, …)
-in code, commits and chat, and not the words it lists under _Avoid_.
-
-## Build & test
-
-```bash
-./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease   # JDK 17
-```
-
-Unit tests are plain JVM (no Robolectric). PdfBox-Android needs a `Context` for its font resources, so
-extraction is tested through `reflowLines` on hand-built `PdfLine`s, not on real PDFs. Release builds
-run R8 with resource shrinking; add rules to `app/proguard-rules.pro` only when `assembleRelease` asks.
-
-- Needs `local.properties` with `sdk.dir=…` (gitignored).
-- Tests live in `app/src/test/java/com/sarvarbek/ember/`, mirroring the source packages. One class:
-  `./gradlew testDebugUnitTest --tests 'com.sarvarbek.ember.pdf.ReflowTest'`.
-- No emulator or device is set up. PdfBox line stripping, covers and gestures are unverified on device —
-  say so rather than claiming end-to-end verification.
-- `.claude/hooks/guard.sh` blocks `git reset --hard`, `git checkout --` and `git clean -f`. Self-test:
-  `bash .claude/hooks/guard.sh --self-test`.
-
-## Architecture
-
-`App` builds one `AppContainer` (Room db, `StorageFiles`, `PdfService`, `WordRepository`, prefs,
-`appScope`), and screens get it as a parameter. ViewModels are created with `viewModel { … }` per Nav3 entry.
-
+## Repo layout
 ```
 app/src/main/java/com/sarvarbek/ember/
   navigation/  Routes (serializable NavKeys), EmberNavHost (the one back stack), AppShell (3 tabs)
@@ -43,35 +13,61 @@ app/src/main/java/com/sarvarbek/ember/
   data/        Room entities + DAOs (db/), StorageFiles, WordRepository, ReadingStats
   pdf/         PdfService (PdfBox-Android text, PdfRenderer covers), LineStripper, Reflow
   ui/          theme/ (AppColors, type, theme) and widgets/ shared across features
+app/src/test/java/com/sarvarbek/ember/   JVM unit tests, mirroring the source packages
+app/proguard-rules.pro                   R8 rules for assembleRelease
+.claude/hooks/guard.sh                   blocks git reset --hard, git checkout --, git clean -f
 ```
+- `App` builds one `AppContainer` (Room db, `StorageFiles`, `PdfService`, `WordRepository`, prefs,
+  `appScope`); screens get it as a parameter. ViewModels are created with `viewModel { … }` per Nav3 entry.
+- `AppShell` holds the Library, Words and Stats tabs. Reader, Notes and a word Collection are pushed on the
+  back stack over it, not tabs.
+- Per-file invariants live at their code site: read the doc comments in `pdf/Reflow.kt`,
+  `features/reader/Reflow.kt`, `features/reader/Pagination.kt` and `pdf/PdfService.kt` before editing those.
+- Don't touch: `build/`, `app/build/`, `.gradle/`, `.kotlin/`, `.idea/`, `local.properties` (generated or
+  machine-local).
 
-`AppShell` holds the Library, Words and Stats tabs. Reader, Notes and a word Collection are pushed on the
-back stack over it, not tabs. Writes that must outlive a screen go through `appScope`.
+## Terminology
+Full glossary in `CONTEXT.md`. Use its words in code, commits and chat, and not the ones it lists under
+_Avoid_. The ones most easily confused:
+- **Book** — an imported PDF plus everything derived from it. The PDF is only the source.
+- **Page** — one screenful of reflowed Blocks. Not a PDF page; changes when the style changes.
+- **Block** — one classified unit of reflowed text: body paragraph, title or subtitle.
+- **Reading fraction** — reading position as a proportion of the text. Canonical, because it survives
+  restyling; never store a page number.
+- **Word / Collection** — a long-pressed saved word (lower-cased, edge punctuation trimmed) / a numbered
+  bucket of at most 20 Words. A Word already in any Collection is skipped.
+- **Notebook** — the one per-Book piece of the reader's writing. Not "notes".
 
-Per-file invariants live at their code site: read the doc comments in `pdf/Reflow.kt`,
-`features/reader/Reflow.kt`, `features/reader/Pagination.kt` and `pdf/PdfService.kt` before editing those.
+## Run & test
+Needs JDK 17 and `local.properties` with `sdk.dir=…`.
+- Install: nothing beyond the SDK; Gradle fetches dependencies.
+- Run locally: `./gradlew installDebug` — needs a device or emulator, and **none is set up**.
+- Unit tests: `./gradlew testDebugUnitTest`; one class:
+  `./gradlew testDebugUnitTest --tests 'com.sarvarbek.ember.pdf.ReflowTest'`.
+- E2E tests: none (no `androidTest`, no device). PdfBox line stripping, covers and gestures are unverified
+  on device — say so rather than claiming end-to-end verification.
+- Lint/build before finishing: `./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease`.
 
-## Packaging
+Unit tests are plain JVM (no Robolectric). PdfBox-Android needs a `Context` for its font resources, so
+extraction is tested through `reflowLines` on hand-built `PdfLine`s, not on real PDFs. Release builds run
+R8 with resource shrinking; add rules to `app/proguard-rules.pro` only when `assembleRelease` asks.
 
+## Conventions
 - Features under `features/` never import each other. Pass callbacks up (e.g. `onOpenNotes`) and let
   `EmberNavHost` own navigation.
 - Shared UI in `ui/widgets/`, data access in `data/`, PDF work in `pdf/`. No grab-bag `common/` —
   anything shared gets a name from its domain.
-
-## Conventions
-
+- Writes that must outlive a screen go through `appScope`.
 - Palette colors come from `ui/theme/AppColors.kt`; reader themes and typefaces from
   `features/reader/ReaderSettings.kt`.
 - Fonts are Google Fonts at runtime (Fraunces / Inter / Spectral) — no bundled font files.
 - IO, decoding and text measurement run off the main thread; lazy lists and the pager are keyed.
 - Mark deliberate shortcuts with `// ponytail:` naming the ceiling and the upgrade path.
 
-## Lessons
-
-When an agent gets something wrong and is corrected, add one line here: `- YYYY-MM-DD — do/don't — why`.
-Newest last. Delete a line once the code or a test enforces it.
-
-- 2026-10-16 — Take each extracted line's text as-is; don't rebuild it from words or glyph bounds — both
-  were measured worse (glued prose, letter-spaced titles, broken ligatures). Kerning splits ("Y ou",
-  "WHA T") are fixed by `repairKerningSplits` in `pdf/Reflow.kt`.
-- 2026-10-20 — Flutter is gone: no `lib/`, `.dart` files or `flutter` commands. Kotlin and Gradle only.
+## Lessons learned
+<!-- Add one line every time an agent gets something wrong. Newest at the bottom. Delete a line once code or a test enforces it. -->
+- 2026-10-16 Rebuilt line text from words / glyph bounds; measured worse (glued prose, letter-spaced
+  titles, broken ligatures) → take each extracted line's text as-is; kerning splits ("Y ou", "WHA T") are
+  fixed by `repairKerningSplits` in `pdf/Reflow.kt`.
+- 2026-10-20 Reached for Flutter paths and commands after the Kotlin port → no `lib/`, `.dart` or
+  `flutter`; Kotlin and Gradle only.
