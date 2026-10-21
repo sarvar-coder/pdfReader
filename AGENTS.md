@@ -41,15 +41,13 @@ _Avoid_. The ones most easily confused:
 ## Run & test
 Needs JDK 17 and `local.properties` with `sdk.dir=…`.
 - Install: nothing beyond the SDK; Gradle fetches dependencies.
-- Run locally: `./gradlew installDebug` — needs a device or emulator, and **none is set up**.
+- Run locally: `./gradlew installDebug` — needs a physical phone over adb (**never use an emulator**).
 - Unit tests: `./gradlew testDebugUnitTest`; one class:
   `./gradlew testDebugUnitTest --tests 'com.sarvarbek.ember.pdf.ReflowTest'`.
-- E2E tests: none (no `androidTest`, no device). PdfBox line stripping, covers and gestures are unverified
-  on device — say so rather than claiming end-to-end verification.
+- E2E / on-device verification: none set up yet — see `.agents/skills/e2e-testing`.
 - Lint/build before finishing: `./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease`.
 
-Unit tests are plain JVM (no Robolectric). PdfBox-Android needs a `Context` for its font resources, so
-extraction is tested through `reflowLines` on hand-built `PdfLine`s, not on real PDFs. Release builds run
+Unit tests are plain JVM (no Robolectric); PDF extraction is tested via hand-built `PdfLine`s. Release builds run
 R8 with resource shrinking; add rules to `app/proguard-rules.pro` only when `assembleRelease` asks.
 
 ## Conventions
@@ -65,7 +63,8 @@ R8 with resource shrinking; add rules to `app/proguard-rules.pro` only when `ass
 - Mark deliberate shortcuts with `// ponytail:` naming the ceiling and the upgrade path.
 
 ## Lessons learned
-<!-- Add one line every time an agent gets something wrong. Newest at the bottom. Delete a line once code or a test enforces it. -->
+When the user corrects a mistake, add a one-line entry to Lessons learned. When a lesson recurs, promote it
+to Conventions. Remove lessons that no longer apply. Format: `- YYYY-MM-DD <mistake> → <what to do instead>`.
 - 2026-10-16 Rebuilt line text from words / glyph bounds; measured worse (glued prose, letter-spaced
   titles, broken ligatures) → take each extracted line's text as-is; kerning splits ("Y ou", "WHA T") are
   fixed by `repairKerningSplits` in `pdf/Reflow.kt`.
