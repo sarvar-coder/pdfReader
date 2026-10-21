@@ -30,4 +30,4 @@ Needs JDK 17 and the Android SDK (`local.properties` with `sdk.dir=…`).
 ./gradlew installDebug
 ```
 
-Contributor and agent conventions: [`CLAUDE.md`](CLAUDE.md).
+Contributor and agent conventions: [`AGENTS.md`](AGENTS.md).
