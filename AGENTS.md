@@ -15,7 +15,7 @@ app/src/main/java/com/sarvarbek/ember/
   ui/          theme/ (AppColors, type, theme) and widgets/ shared across features
 app/src/test/java/com/sarvarbek/ember/   JVM unit tests, mirroring the source packages
 app/proguard-rules.pro                   R8 rules for assembleRelease
-.claude/hooks/guard.sh                   blocks git reset --hard, git checkout --, git clean -f
+.claude/hooks/guard.sh                   regex guard: only literal git reset --hard / checkout -- / clean -f
 ```
 - `App` builds one `AppContainer` (Room db, `StorageFiles`, `PdfService`, `WordRepository`, prefs,
   `appScope`); screens get it as a parameter. ViewModels are created with `viewModel { … }` per Nav3 entry.
