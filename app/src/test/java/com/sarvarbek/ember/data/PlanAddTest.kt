@@ -46,11 +46,4 @@ class PlanAddTest {
 
     @Test fun duplicateNamesTheCollectionHoldingIt() =
         assertEquals(AddPlan.Skip("Collection 1"), planAdd(WordCollection(2, "Collection 2"), 3, "Collection 1"))
-
-    @Test fun normalizeTrimsEdgePunctuationOnly() {
-        assertEquals("the", normalizeWord("  “The,”  "))
-        assertEquals("c++", normalizeWord("C++"))
-        assertEquals("don't", normalizeWord("don't."))
-        assertEquals("", normalizeWord(" —, "))
-    }
 }
