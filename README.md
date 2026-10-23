@@ -10,9 +10,9 @@ original layout and images are discarded on purpose: prose only.
 - **Reader** — reflowed pages, reading position kept as a fraction of the text so it survives restyling.
 - **Chapters** — taken from the PDF outline, or from detected headings when there is none.
 - **Highlights & bookmarks** — saved per book.
-- **Words** — long-press a word to save it with its sentence, into Collections of 20.
+- **Words** — long-press a word to save it, with its sentence, into Collections of up to 20 Words.
 - **Notebook** — one per book.
-- **Stats** — reading sessions, minutes, pages, a daily streak and a quarter heatmap.
+- **Stats** — reading sessions, minutes, pages, a daily streak and a heatmap of the last 91 days.
 
 Vocabulary (Book, Page, Block, Reading fraction, Word, Collection, …) is defined in [`CONTEXT.md`](CONTEXT.md).
 
