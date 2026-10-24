@@ -1,0 +1,8 @@
+agent: claude
+commands:
+  test: "./gradlew testDebugUnitTest"
+  lint: "./gradlew lintDebug"
+test:
+  instructions: |
+    Android app. E2E means a physical phone over adb (`./gradlew installDebug`).
+    Never start or install an emulator.
