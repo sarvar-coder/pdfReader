@@ -52,8 +52,7 @@ R8 with resource shrinking; add rules to `app/proguard-rules.pro` only when `ass
 
 ## Shipping & review
 Every branch ships through the no-mistakes gate (`git push no-mistakes <branch>` or `/no-mistakes`), which
-rebases, reviews, tests, lints, opens the PR and waits on the `build-test` CI check. Gate commands live in
-`.no-mistakes.yaml`, read from `main` only.
+rebases, reviews, tests, lints, opens the PR and waits on CI.
 - **High risk — read the diff, and require on-phone evidence:** `pdf/Reflow.kt`, `pdf/PdfService.kt`,
   `pdf/LineStripper.kt`, `features/reader/Reflow.kt`, `features/reader/Pagination.kt`, `data/db/` (schema or
   migrations), anything touching the Reading fraction, and `app/proguard-rules.pro`.
