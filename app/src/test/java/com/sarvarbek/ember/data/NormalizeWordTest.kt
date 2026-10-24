@@ -2,6 +2,7 @@ package com.sarvarbek.ember.data
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.util.Locale
 
 class NormalizeWordTest {
     @Test fun lowerCases() {
@@ -10,7 +11,15 @@ class NormalizeWordTest {
     }
 
     /** lowercase() is locale-independent: no dotless ı on a Turkish phone. */
-    @Test fun lowerCasesWithoutLocale() = assertEquals("title", normalizeWord("TITLE"))
+    @Test fun lowerCasesWithoutLocale() {
+        val saved = Locale.getDefault()
+        Locale.setDefault(Locale.forLanguageTag("tr-TR"))
+        try {
+            assertEquals("title", normalizeWord("TITLE"))
+        } finally {
+            Locale.setDefault(saved)
+        }
+    }
 
     @Test fun trimsWhitespace() = assertEquals("word", normalizeWord(" \t word\n "))
 
