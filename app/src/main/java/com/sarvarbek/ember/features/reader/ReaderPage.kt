@@ -33,7 +33,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -155,13 +154,16 @@ private fun FragText(
     val haptics = LocalHapticFeedback.current
     val select by rememberUpdatedState(onSelect)
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
-    val text = remember(frag.text, marks) {
+    val selColor = AppColors.ember.copy(alpha = 0.3f)
+    // The live selection is a background span like the saved marks, not a path from getPathForRange: the
+    // platform paints spans with the glyphs, so the box stays on the word in justified (stretched) lines.
+    val text = remember(frag.text, marks, selection?.start, selection?.end) {
         buildAnnotatedString {
             append(frag.text)
             for ((s, e, color) in markRanges(frag.text, marks)) addStyle(SpanStyle(background = color), s, e)
+            if (selection != null) addStyle(SpanStyle(background = selColor), selection.start, selection.end)
         }
     }
-    val selColor = AppColors.ember.copy(alpha = 0.3f)
     Box {
         BasicText(
             text = text,
@@ -169,10 +171,6 @@ private fun FragText(
             onTextLayout = { layout = it },
             modifier = Modifier
                 .fillMaxWidth()
-                .drawBehind {
-                    val l = layout
-                    if (selection != null && l != null) drawPath(l.getPathForRange(selection.start, selection.end), selColor)
-                }
                 .pointerInput(frag) {
                     var anchor = TextRange.Zero
                     var range: TextRange? = null
